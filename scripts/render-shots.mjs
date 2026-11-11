@@ -45,6 +45,7 @@ const STATES = {
   agenda: [base, auth, ''],
   details: [base, auth, `document.querySelector('[data-open="review"]').click()`],
   calendars: [base, auth, `document.getElementById('settings').click()`],
+  rsvp: [base, auth, `document.querySelector('[data-open="customer"]').click()`],
   connect: [blocking('needs-setup', 'google', MESSAGES.needsSetup), auth, ''],
   'mac-access': [blocking('not-asked', 'eventkit', MESSAGES.notAsked), auth, ''],
   offline: [{ ...base, status: 'offline', message: MESSAGES.offline, stale: true }, auth, '']

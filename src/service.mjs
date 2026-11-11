@@ -12,7 +12,7 @@
 //     fetchedAt, days, showDeclined, capabilities
 //   }
 import { addDays, dayKey, startOfDay } from '../shared/agenda.mjs'
-import { toCalendarError } from './errors.mjs'
+import { CalendarError, toCalendarError } from './errors.mjs'
 
 export const BACKEND_IDS = Object.freeze(['google', 'eventkit', 'sample'])
 const CHOICES_KEY = 'calendars'
@@ -57,7 +57,9 @@ export function createService({ backends, settings, storage, googleReady = async
     const backend = backends[id]
     const days = clampDays(await read('days'))
     const showDeclined = (await read('showDeclined')) === true
-    const base = { backend: id, days, showDeclined, capabilities: backend.capabilities ?? {}, fetchedAt: now() }
+    // Answering invitations needs a backend that can, and the `rsvp` setting on.
+    const rsvp = Boolean(backend.capabilities?.rsvp && backend.respond) && (await read('rsvp')) !== false
+    const base = { backend: id, days, showDeclined, capabilities: { ...(backend.capabilities ?? {}), rsvp }, fetchedAt: now() }
     try {
       const picked = await choices()
       const calendars = (await backend.calendars()).map((c) => ({ ...c, shown: typeof picked[`${id}:${c.id}`] === 'boolean' ? picked[`${id}:${c.id}`] : c.selected !== false }))
@@ -83,6 +85,16 @@ export function createService({ backends, settings, storage, googleReady = async
     }
   }
 
+  const notify = (next) => {
+    for (const listener of listeners) {
+      try {
+        listener(next)
+      } catch (error) {
+        log(`listener: ${error.message}`)
+      }
+    }
+  }
+
   return {
     get snapshot() {
       return snapshot
@@ -98,13 +110,7 @@ export function createService({ backends, settings, storage, googleReady = async
           // A newer read started meanwhile: let it be the one that counts.
           if (mine !== generation) return loading ?? next
           snapshot = next
-          for (const listener of listeners) {
-            try {
-              listener(next)
-            } catch (error) {
-              log(`listener: ${error.message}`)
-            }
-          }
+          notify(next)
           return next
         })
         .finally(() => {
@@ -125,6 +131,23 @@ export function createService({ backends, settings, storage, googleReady = async
       await settings.set('backend', id)
       snapshot = null
       generation++
+    },
+
+    // Accept, Maybe or Decline, pressed in the panel. The answer shows at once; the agenda is
+    // then read again so it matches what Google kept.
+    async respond(eventId, calendarId, response) {
+      const snap = snapshot ?? (await this.load())
+      const event = snap.events.find((e) => e.id === eventId && e.calendarId === calendarId)
+      if (!event) throw new CalendarError('invalid', 'That event isn’t in the agenda any more. Refresh and try again.')
+      const backend = backends[snap.backend]
+      if (!backend?.respond || !backend.capabilities?.rsvp) throw new CalendarError('invalid', 'This calendar source can’t answer invitations. Connect Google Calendar to answer them from Orca.')
+      if (!snap.capabilities?.rsvp) throw new CalendarError('invalid', 'Turn on “Answer invitations” in Orca Settings → Calendar to answer from Orca.')
+      const answered = await backend.respond(event, response)
+      const response_ = answered?.self?.response ?? response
+      snapshot = { ...snap, events: snap.events.map((e) => (e === event ? { ...e, self: { ...e.self, response: response_ } } : e)) }
+      notify(snapshot)
+      generation++
+      return this.load()
     },
 
     onChange(listener) {

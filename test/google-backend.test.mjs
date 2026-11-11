@@ -159,3 +159,32 @@ test('client: rate limits, a disabled API, admin blocks and no network become se
   )
   await assert.rejects(make(new TypeError('fetch failed')).get('/x'), (e) => e.kind === 'offline')
 })
+
+test('respond: patches only the person’s own answer on that one occurrence, and tells the organizer', async () => {
+  const { backend, google } = backendWith({
+    [`PATCH ${CAL}/calendars/sam@example.com/events/evt1_20261111T093000Z`]: reply(200, { ...meeting, attendees: [{ email: 'sam@example.com', self: true, responseStatus: 'accepted' }] })
+  })
+  const event = normalizeEvent(meeting, calendar)
+  const answered = await backend.respond(event, 'accepted')
+  const request = google.requests[0]
+  assert.equal(request.method, 'PATCH')
+  assert.equal(request.query.sendUpdates, 'all')
+  assert.deepEqual(request.body, { attendeesOmitted: true, attendees: [{ email: 'sam@example.com', responseStatus: 'accepted' }] })
+  assert.equal(answered.self.response, 'accepted')
+})
+
+test('respond: refuses what it can’t answer, without calling Google', async () => {
+  const { backend, google } = backendWith({})
+  const event = normalizeEvent(meeting, calendar)
+  await assert.rejects(backend.respond(event, 'maybe'), (e) => e.kind === 'invalid')
+  await assert.rejects(backend.respond({ ...event, self: null }, 'accepted'), (e) => e.kind === 'invalid')
+  await assert.rejects(backend.respond({ ...event, organizer: { self: true } }, 'declined'), (e) => e.kind === 'invalid')
+  assert.equal(google.requests.length, 0)
+})
+
+test('respond: a login without the write permission asks to reconnect', async () => {
+  const { backend } = backendWith({
+    [`PATCH ${CAL}/calendars/sam@example.com/events/evt1_20261111T093000Z`]: reply(403, { error: { errors: [{ reason: 'insufficientPermissions' }], message: 'Request had insufficient authentication scopes.' } })
+  })
+  await assert.rejects(backend.respond(normalizeEvent(meeting, calendar), 'declined'), (e) => e.kind === 'unauthenticated' && /Connect again/.test(e.message))
+})

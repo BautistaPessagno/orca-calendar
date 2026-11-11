@@ -1,6 +1,7 @@
 // Google Calendar API backend: the calendar list with the person's own colours, and each shown
 // calendar's events with recurring events expanded by Google (singleEvents=true).
 import { findConference } from '../../shared/links.mjs'
+import { CalendarError } from '../../src/errors.mjs'
 
 // Google Calendar's event colours (colorId 1–11) as its web app draws them.
 export const EVENT_COLORS = Object.freeze({
@@ -114,7 +115,22 @@ async function mapLimited(items, limit, fn) {
 export function createGoogleBackend({ client, log = () => {} }) {
   return {
     id: 'google',
-    capabilities: { rsvp: false, conference: true },
+    capabilities: { rsvp: true, conference: true },
+
+    // Answers an invitation for the person: only their own entry, on this one occurrence (an
+    // instance id), and Google emails the organizer. PATCH would replace the attendee list, so
+    // `attendeesOmitted` tells Google the list holds only the participant.
+    async respond(event, response) {
+      if (!['accepted', 'tentative', 'declined'].includes(response)) throw new CalendarError('invalid', 'Answer yes, maybe or no.')
+      if (!event?.self?.email) throw new CalendarError('invalid', 'You aren’t a guest of this event, so there is nothing to answer.')
+      if (event.organizer?.self) throw new CalendarError('invalid', 'You organize this event, so there is nothing to answer.')
+      const item = await client.patch(
+        `/calendars/${encodeURIComponent(event.calendarId)}/events/${encodeURIComponent(event.id)}`,
+        { attendeesOmitted: true, attendees: [{ email: event.self.email, responseStatus: response }] },
+        { sendUpdates: 'all' }
+      )
+      return normalizeEvent(item, { id: event.calendarId, color: event.color }) ?? { ...event, self: { ...event.self, response } }
+    },
 
     async calendars() {
       const out = []

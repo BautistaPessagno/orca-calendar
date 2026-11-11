@@ -12,6 +12,7 @@
 //   auth.status                              → { status, message? }
 //   auth.disconnect                          → Snapshot
 //   eventkit.request                         → Snapshot, after macOS's prompt
+//   event.respond     { id, calendarId, response } → Snapshot; 'accepted' | 'tentative' | 'declined'
 // Posts: 'agenda.changed' { fetchedAt } whenever a new snapshot is read.
 import { createEventKitBackend } from './backends/eventkit/backend.mjs'
 import { createAuth } from './backends/google/auth.mjs'
@@ -25,6 +26,7 @@ import { createTicker } from './src/status-bar.mjs'
 // How often the agenda is re-read while the plugin is enabled.
 export const REFRESH_MS = { google: 5 * 60_000, eventkit: 2 * 60_000, sample: 5 * 60_000 }
 const RETRY_MS = 60_000
+const RESPONSES = ['accepted', 'tentative', 'declined']
 const PREFS = { days: (v) => Math.max(1, Math.min(14, Math.round(Number(v)) || 3)), showDeclined: (v) => v === true }
 
 let stopAll = null
@@ -49,6 +51,7 @@ export default function activate(orca, deps = {}) {
     sample: createSampleBackend({ now })
   }
   const setting = (key) => Promise.resolve(orca.settings.get(key)).catch(() => undefined)
+  const rsvpWanted = async () => (await setting('rsvp')) !== false
 
   const googleReady = async () => {
     const info = await auth.connection().catch(() => null)
@@ -113,8 +116,8 @@ export default function activate(orca, deps = {}) {
       await orca.settings.set(input.key, clean(input.value))
       return service.load()
     },
-    'auth.info': async () => ({ ...(await auth.connection()), platform: deps.platform ?? process.platform }),
-    'auth.start': (input) => auth.start({ clientId: input?.clientId, clientSecret: input?.clientSecret }),
+    'auth.info': async () => ({ ...(await auth.connection({ rsvp: await rsvpWanted() })), rsvp: await rsvpWanted(), platform: deps.platform ?? process.platform }),
+    'auth.start': async (input) => auth.start({ clientId: input?.clientId, clientSecret: input?.clientSecret, rsvp: await rsvpWanted() }),
     'auth.status': async () => {
       const status = await auth.status()
       if (status.status === 'connected' && service.snapshot?.status !== 'ready') await service.load()
@@ -123,6 +126,11 @@ export default function activate(orca, deps = {}) {
     'auth.disconnect': async () => {
       await auth.disconnect()
       return service.load()
+    },
+    // Only from a press on Yes, Maybe or No in the panel.
+    'event.respond': async (input) => {
+      if (!RESPONSES.includes(input?.response)) throw Object.assign(new Error('Answer yes, maybe or no.'), { code: 'invalid' })
+      return service.respond(String(input?.id ?? ''), String(input?.calendarId ?? ''), input.response)
     },
     'eventkit.request': async () => {
       await backends.eventkit.requestAccess()

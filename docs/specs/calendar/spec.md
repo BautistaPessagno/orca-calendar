@@ -197,6 +197,9 @@ Storage: `calendars` (`{ "<backend>:<calendar id>": shown }`), `notified`
 1. **PR 1**: research, spec, backends (Google read-only, EventKit, sample), agenda, status bar,
    notifications, join links, panel, README.
 2. **PR 2** (stacked): Accept / Maybe / Decline for Google, the `rsvp` setting and its scope.
+   `PATCH events/{instanceId}?sendUpdates=all` with `{ attendeesOmitted: true, attendees: [self] }`;
+   the sample backend answers in memory; EventKit cannot answer. A login granted before the
+   setting lacks `calendar.events`, and the panel offers to connect again.
 
 ## Testing
 
