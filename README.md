@@ -54,8 +54,9 @@ Cloud project of your company. You create it once.
      and turn off **Answer invitations** in Orca Settings → Calendar.
 5. **Clients → Create client**. Application type: **Desktop app**. Name: anything. Press
    **Create**, then copy the **Client ID** and the **Client secret**.
-6. In Orca, open the Calendar panel. In its calendar menu, under Source, pick **Google**. Paste the
-   client ID and the secret, press **Continue**, then **Sign in with Google**. Your browser opens
+6. In Orca, open the Calendar panel and press **Connect Google Calendar**: it's on the sample
+   week's card and at the bottom of the agenda (or pick **Google** under Source in the calendar
+   menu). Paste the client ID and the secret, press **Continue**, then **Sign in with Google**. Your browser opens
    Google's sign-in. Allow access, and go back to Orca.
 
 Calendar keeps the client secret and your login in Orca's encrypted store on this computer. They

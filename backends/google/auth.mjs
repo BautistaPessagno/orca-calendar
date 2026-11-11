@@ -16,6 +16,9 @@ export const scopesFor = ({ rsvp } = {}) => [SCOPE + 'calendar.calendarlist.read
 export const DEFAULT_PORT = 43119
 export const TOKENS_KEY = 'google.tokens'
 export const SECRET_KEY = 'google.clientSecret'
+// Set when Google ended a login (revoked, expired), so the panel can say "connect again" instead
+// of greeting a first-time user. Cleared by the next login and by Disconnect.
+export const ENDED_KEY = 'google.loginEnded'
 
 const AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
@@ -69,8 +72,12 @@ export function createAuth({ settings, secrets, protection = async () => 'os-key
     return memory
   }
 
+  let endedMemory = null // the ENDED_KEY value, when the keyring refused it
+
   const save = async (tokens) => {
     memory = tokens
+    endedMemory = null
+    await Promise.resolve(secrets.delete(ENDED_KEY)).catch(() => {})
     try {
       await secrets.set(TOKENS_KEY, JSON.stringify(tokens))
       memoryOnly = false
@@ -79,11 +86,25 @@ export function createAuth({ settings, secrets, protection = async () => 'os-key
     }
   }
 
-  const forget = async () => {
+  // `ended`: Google ended the login, as opposed to the person disconnecting.
+  const forget = async ({ ended = false } = {}) => {
     memory = null
     memoryOnly = false
     await Promise.resolve(secrets.delete(TOKENS_KEY)).catch(() => {})
+    if (ended) {
+      endedMemory = new Date(now()).toISOString()
+      await Promise.resolve(secrets.set(ENDED_KEY, endedMemory)).catch(() => {})
+    } else {
+      endedMemory = null
+      await Promise.resolve(secrets.delete(ENDED_KEY)).catch(() => {})
+    }
   }
+
+  const loginEnded = async () => Boolean(endedMemory ?? (await Promise.resolve(secrets.get(ENDED_KEY)).catch(() => null)))
+
+  // No usable login: a first-time setup, or one Google ended.
+  const noLogin = async () =>
+    (await loginEnded()) ? new CalendarError('unauthenticated', MESSAGES.unauthenticated) : new CalendarError('needs-setup', MESSAGES.needsSetup)
 
   const post = async (url, form) => {
     let response
@@ -119,7 +140,7 @@ export function createAuth({ settings, secrets, protection = async () => 'os-key
     }
     // Revoked, expired (7 days for an External app in Testing), or another client: log in again.
     if (body.error === 'invalid_grant' || body.error === 'invalid_client' || body.error === 'unauthorized_client') {
-      await forget()
+      await forget({ ended: true })
       throw new CalendarError('unauthenticated', MESSAGES.unauthenticated)
     }
     throw new CalendarError('error', `Google did not refresh the login: ${body.error_description ?? body.error ?? 'unknown error'}`)
@@ -129,10 +150,11 @@ export function createAuth({ settings, secrets, protection = async () => 'os-key
     const id = await clientId()
     if (!id) throw new CalendarError('needs-setup', MESSAGES.needsSetup)
     const tokens = await load()
-    if (!tokens?.access_token || (tokens.client_id && tokens.client_id !== id)) throw new CalendarError('unauthenticated', MESSAGES.unauthenticated)
+    // No login yet, or one made with another client ID (the person changed it): set up anew.
+    if (!tokens?.access_token || (tokens.client_id && tokens.client_id !== id)) throw await noLogin()
     if (!force && tokens.expires_at - REFRESH_EARLY_MS > now()) return tokens.access_token
     if (!tokens.refresh_token) {
-      await forget()
+      await forget({ ended: true })
       throw new CalendarError('unauthenticated', MESSAGES.unauthenticated)
     }
     refreshing ??= refresh(tokens, id).finally(() => {
@@ -263,7 +285,7 @@ export function createAuth({ settings, secrets, protection = async () => 'os-key
     },
 
     async expire() {
-      await forget()
+      await forget({ ended: true })
     },
 
     async disconnect() {

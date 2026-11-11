@@ -97,6 +97,17 @@
       .join:hover { filter: brightness(1.08); box-shadow: 0 1px 2px rgba(0,0,0,0.25); }
       .join.small { height: 24px; padding: 0 10px 0 8px; font-size: 12px; border-radius: 12px; }
 
+      /* ---------- the sample week's way out ---------- */
+      .promo {
+        margin: 0 10px 10px; padding: 12px; display: grid; gap: 10px;
+        border-radius: calc(var(--radius) + 4px);
+        background: color-mix(in srgb, var(--today) 10%, var(--bg));
+        border: 1px solid color-mix(in srgb, var(--today) 28%, transparent);
+        font-size: 12.5px;
+      }
+      .promo .btn { height: 30px; font-size: 12.5px; }
+      .foot .linkish { font-size: 11.5px; }
+
       /* ---------- banners ---------- */
       .banner { margin: 0 10px 8px; padding: 8px 10px; border-radius: var(--radius); background: var(--warn-bg); color: var(--warn-fg); font-size: 12px; }
 
@@ -242,6 +253,7 @@
       import { buildAgenda, meetingState } from '../shared/agenda.mjs'
       import { clip, formatDuration, formatTime, where } from '../shared/format.mjs'
       import { openable } from '../shared/links.mjs'
+      import { draw } from './draw.mjs'
 
       const $ = (id) => document.getElementById(id)
       const main = $('main')
@@ -339,7 +351,7 @@
       }
 
       function renderLoading() {
-        main.innerHTML = `<div class="skeleton" aria-label="Loading">${'<div class="sk w60"></div><div class="sk w80"></div><div class="sk w40"></div>'.repeat(3)}</div>`
+        draw(main, `<div class="skeleton" aria-label="Loading">${'<div class="sk w60"></div><div class="sk w80"></div><div class="sk w40"></div>'.repeat(3)}</div>`)
       }
 
       function responseOf(event) {
@@ -350,12 +362,13 @@
         const agenda = buildAgenda(snap.events || [], { now, days: snap.days || 3, showDeclined: snap.showDeclined })
         const html = []
         if (snap.status !== 'ready' && snap.message) html.push(`<div class="banner" role="status">${esc(snap.message)}</div>`)
+        if (snap.backend === 'sample') html.push(renderSampleCard())
         html.push(renderNext(now))
         html.push('<div class="agenda">')
         for (const day of agenda.days) html.push(renderDay(day, now, agenda.current))
         html.push('</div>')
         html.push(renderFoot())
-        main.innerHTML = html.join('')
+        draw(main, html.join(''))
       }
 
       // The card at the top: what runs now, else what comes next today.
@@ -507,11 +520,21 @@
         render()
       }
 
+      // The sample week is made up: say so, and show the way to the person's own calendar.
+      function renderSampleCard() {
+        const mac = auth?.platform === 'darwin' || navigator.platform.startsWith('Mac')
+        return `<section class="promo" aria-label="Sample week">
+          <div><strong>This is a made-up sample week.</strong> Connect your calendar to see your own meetings here.</div>
+          <div class="actions"><button class="btn primary" data-backend="google">Connect Google Calendar</button>${mac ? '<button class="linkish" data-backend="eventkit">Use this Mac’s calendars</button>' : ''}</div>
+        </section>`
+      }
+
       const SOURCE = { google: 'Google Calendar', eventkit: 'Mac calendars', sample: 'Sample week' }
       function renderFoot() {
         const shown = (snap.calendars || []).filter((c) => c.shown).length
         const updated = snap.fetchedAt ? `updated ${time(snap.fetchedAt)}` : ''
-        return `<footer class="foot tabular"><span>${esc(SOURCE[snap.backend] || '')}</span><span>·</span><span>${shown} of ${(snap.calendars || []).length} calendars</span>${updated ? `<span>·</span><span>${esc(updated)}</span>` : ''}</footer>`
+        const toGoogle = snap.backend !== 'google' ? `<span>·</span><button class="linkish" data-backend="google">Connect Google Calendar</button>` : ''
+        return `<footer class="foot tabular"><span>${esc(SOURCE[snap.backend] || '')}</span><span>·</span><span>${shown} of ${(snap.calendars || []).length} calendars</span>${updated ? `<span>·</span><span>${esc(updated)}</span>` : ''}${toGoogle}</footer>`
       }
 
       // ---------- Google setup ----------
@@ -520,11 +543,9 @@
         const clientId = auth?.clientId || ''
         const mac = auth?.platform === 'darwin' || (!auth && navigator.platform.startsWith('Mac'))
         const redirect = auth?.redirectUri || 'http://127.0.0.1:43119/callback'
-        // A refresh can draw this screen again while the person is typing: keep what they typed.
-        const kept = { cid: $('cid')?.value, csecret: $('csecret')?.value }
-        main.innerHTML = `<div class="sheet">
+        draw(main, `<div class="sheet">
           <div class="hero">${icon('sheet', 40)}<h2>${ended ? 'Connect Google Calendar again' : 'Connect Google Calendar'}</h2><p>${esc(ended ? snap.message : 'See your meetings, join calls and get reminders without leaving Orca. It takes about five minutes, once.')}</p></div>
-          <details class="help"${clientId ? '' : ' open'}><summary>Create your Google sign-in (once)</summary>
+          <details class="help" id="help"${clientId ? '' : ' open'}><summary>Create your Google sign-in (once)</summary>
             <ol class="steps">
               <li>Open <button class="linkish" data-url="https://console.cloud.google.com/projectcreate">console.cloud.google.com</button> with your work account and create a project, e.g. “Orca Calendar”. Keep your company as its organization.</li>
               <li>APIs &amp; Services → Library → <b>Google Calendar API</b> → Enable.</li>
@@ -544,9 +565,7 @@
             ${mac ? `<button class="linkish" data-backend="eventkit">Use this Mac's calendars instead (no setup)</button>` : ''}
             <button class="linkish" data-backend="sample">Try it with a sample week</button>
           </div>
-        </div>`
-        if (kept.cid) $('cid').value = kept.cid
-        if (kept.csecret) $('csecret').value = kept.csecret
+        </div>`)
       }
 
       async function startLogin() {
@@ -587,17 +606,17 @@
 
       // ---------- Mac access ----------
       function renderMacAccess() {
-        main.innerHTML = `<div class="sheet"><div class="hero">${icon('lock', 40)}<h2>Read this Mac's calendars</h2><p>${esc(snap.message)}</p>
+        draw(main, `<div class="sheet"><div class="hero">${icon('lock', 40)}<h2>Read this Mac's calendars</h2><p>${esc(snap.message)}</p>
           <div class="actions" style="justify-content:center"><button class="btn primary" id="allow">Allow access</button></div>
           <p style="font-size:12px">Shows the accounts you added in System Settings → Internet Accounts: Google, Exchange, iCloud.</p></div>
-          <div class="alt"><button class="linkish" data-backend="google">Connect Google Calendar instead</button><button class="linkish" data-backend="sample">Try it with a sample week</button></div></div>`
+          <div class="alt"><button class="linkish" data-backend="google">Connect Google Calendar instead</button><button class="linkish" data-backend="sample">Try it with a sample week</button></div></div>`)
       }
 
       function renderMessage() {
         const title = { 'no-access': 'Calendar access is off', unsupported: 'Not available here', offline: 'Can’t reach your calendar', 'rate-limited': 'Taking a short break' }[snap.status] || 'Something went wrong'
-        main.innerHTML = `<div class="sheet"><div class="hero">${icon('sheet', 40)}<h2>${esc(title)}</h2><p>${esc(snap.message || '')}</p>
+        draw(main, `<div class="sheet"><div class="hero">${icon('sheet', 40)}<h2>${esc(title)}</h2><p>${esc(snap.message || '')}</p>
           <div class="actions" style="justify-content:center"><button class="btn" id="retry">Try again</button></div></div>
-          <div class="alt">${snap.backend !== 'google' ? '<button class="linkish" data-backend="google">Connect Google Calendar instead</button>' : ''}${snap.backend !== 'sample' ? '<button class="linkish" data-backend="sample">Try it with a sample week</button>' : ''}</div></div>`
+          <div class="alt">${snap.backend !== 'google' ? '<button class="linkish" data-backend="google">Connect Google Calendar instead</button>' : ''}${snap.backend !== 'sample' ? '<button class="linkish" data-backend="sample">Try it with a sample week</button>' : ''}</div></div>`)
       }
 
       // ---------- calendars sheet ----------
@@ -611,7 +630,7 @@
         const sources = [['google', 'Google'], ...(mac ? [['eventkit', 'Mac']] : []), ['sample', 'Sample']]
         const list = [...groups].map(([account, cals]) => `<div class="section-title">${esc(account || 'Calendars')}</div>` + cals.map((c) => `
             <label class="cal" style="--c:${safeColor(c.color)}"><input type="checkbox" data-cal="${esc(c.id)}"${c.shown ? ' checked' : ''} /><span class="box">${icon('check', 14)}</span><span class="t">${esc(c.title)}</span></label>`).join('')).join('')
-        main.innerHTML = `<div class="sheet">
+        draw(main, `<div class="sheet">
           <div class="section-title">Source</div>
           <div class="seg" role="group" aria-label="Calendar source">${sources.map(([id, label]) => `<button data-backend="${id}" aria-pressed="${snap.backend === id}">${label}</button>`).join('')}</div>
           ${list || '<p>No calendars to pick yet.</p>'}
@@ -621,7 +640,7 @@
           ${snap.backend === 'google' && auth?.connected ? '<div class="alt"><button class="linkish" id="disconnect">Disconnect Google</button></div>' : ''}
           <div class="actions"><button class="btn primary" id="done">Done</button></div>
           <p style="font-size:12px">Reminders and the source are also in Orca Settings → Calendar.</p>
-        </div>`
+        </div>`)
       }
 
       // ---------- events ----------

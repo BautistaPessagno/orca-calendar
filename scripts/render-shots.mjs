@@ -47,6 +47,7 @@ const STATES = {
   calendars: [base, auth, `document.getElementById('settings').click()`],
   rsvp: [base, auth, `document.querySelector('[data-open="customer"]').click()`],
   connect: [blocking('needs-setup', 'google', MESSAGES.needsSetup), auth, ''],
+  'connect-ended': [blocking('unauthenticated', 'google', MESSAGES.unauthenticated), { ...auth, clientId: '1234567890-abcdefghijklmnop.apps.googleusercontent.com', hasSecret: true }, ''],
   'mac-access': [blocking('not-asked', 'eventkit', MESSAGES.notAsked), auth, ''],
   offline: [{ ...base, status: 'offline', message: MESSAGES.offline, stale: true }, auth, '']
 }

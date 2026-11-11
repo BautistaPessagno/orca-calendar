@@ -17,7 +17,7 @@ import { CalendarError, toCalendarError } from './errors.mjs'
 export const BACKEND_IDS = Object.freeze(['google', 'eventkit', 'sample'])
 const CHOICES_KEY = 'calendars'
 // States in which there is nothing to show but the way to fix it.
-const BLOCKING = new Set(['needs-setup', 'unauthenticated', 'not-asked', 'no-access', 'unsupported'])
+export const BLOCKING = new Set(['needs-setup', 'unauthenticated', 'not-asked', 'no-access', 'unsupported'])
 
 export function resolveBackendId(choice, platform, { googleReady } = {}) {
   if (BACKEND_IDS.includes(choice)) return choice
@@ -32,6 +32,7 @@ const clampDays = (value) => {
 
 export function createService({ backends, settings, storage, googleReady = async () => false, platform = process.platform, now = Date.now, timeZone, log = () => {} }) {
   let snapshot = null
+  let lastLogged = null // the last failure logged, so a repeat of it isn't logged again
   let loading = null
   let loadingGeneration = -1
   // Rises when what a read depends on changes (backend, calendars), so a read already running
@@ -68,10 +69,13 @@ export function createService({ backends, settings, storage, googleReady = async
       const to = startOfDay(addDays(today, days), timeZone)
       const shown = calendars.filter((c) => c.shown)
       const events = shown.length ? await backend.events({ from, to, calendars: shown }) : []
+      lastLogged = null
       return { ...base, status: 'ready', calendars, events }
     } catch (failure) {
       const error = toCalendarError(failure)
-      log(`${id}: ${error.kind}: ${error.message}`)
+      const line = `${id}: ${error.kind}: ${error.message}`
+      if (line !== lastLogged) log(line)
+      lastLogged = line
       const keep = !BLOCKING.has(error.kind) && snapshot?.backend === id
       return {
         ...base,
