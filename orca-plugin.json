@@ -4,8 +4,8 @@
   "execution": "trusted-worker",
   "id": "calendar",
   "name": "Calendar",
-  "version": "0.2.1",
-  "description": "Your Google Calendar in Orca's sidebar: today's agenda and the next days, the next meeting counting down in the status bar, a join button for Meet, Zoom, Teams and Slack huddles, and a reminder before each meeting. Works with your Mac's calendars with no setup. Not affiliated with Google or Apple.",
+  "version": "0.3.0",
+  "description": "Your Google Calendar in Orca's sidebar: today's agenda and the next days with your Google Tasks, the next meeting counting down in the status bar, a join button for Meet, Zoom, Teams and Slack huddles, and a reminder before each meeting. Works with your Mac's calendars with no setup. Not affiliated with Google or Apple.",
   "author": {
     "name": "Bautista Pessagno",
     "url": "https://github.com/BautistaPessagno"
@@ -20,8 +20,8 @@
   "screenshots": [
     {
       "path": "images/agenda.png",
-      "alt": "The agenda in dark theme, and in light theme with an event open: Join Zoom, the room, guests with their answers, a red now line and free time.",
-      "caption": "Today and the next days, in your calendar colours"
+      "alt": "The agenda in dark and light theme: Google Tasks with an overdue one and a done one, Join Zoom, guests with their answers, a red now line and free time.",
+      "caption": "Today and the next days, with your tasks"
     },
     {
       "path": "images/reminders.png",

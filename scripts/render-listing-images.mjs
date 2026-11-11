@@ -18,7 +18,7 @@ import { createServer } from 'node:http'
 import { dirname, extname, join, normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { createSampleBackend } from '../backends/sample.mjs'
+import { createSampleBackend, createSampleTasks } from '../backends/sample.mjs'
 import { formatDuration, formatRange, where } from '../shared/format.mjs'
 import { MESSAGES } from '../src/errors.mjs'
 import { createService } from '../src/service.mjs'
@@ -51,6 +51,8 @@ async function snapshotAt() {
   }
   const service = createService({
     backends: { sample: createSampleBackend({ now: () => ANCHOR }) },
+    taskSources: { sample: createSampleTasks({ now: () => ANCHOR }) },
+    taskAccess: async () => 'write',
     settings: { ...store(), get: async (k) => ({ backend: 'sample', days: 3 })[k] },
     storage: store(),
     now: () => ANCHOR
@@ -231,9 +233,10 @@ const SCENES = {
     <div style="position:absolute;left:96px;top:150px;width:520px">
       <div class="eyebrow">Orca plugin</div>
       <h1>Calendar</h1>
-      <p class="lead">Your meetings in Orca's sidebar. The next one counts down in the status bar, and Join opens the call.</p>
+      <p class="lead">Your meetings and tasks in Orca's sidebar. The next meeting counts down in the status bar, and Join opens the call.</p>
       <div class="chips">
         <span><i style="background:#1a73e8"></i>Google Calendar</span>
+        <span><i style="background:#8ab4f8"></i>Google Tasks</span>
         <span><i style="background:#33b679"></i>Mac calendars</span>
         <span><i style="background:#f4511e"></i>Meet · Zoom · Teams · Slack</span>
       </div>
@@ -248,7 +251,7 @@ const SCENES = {
       <div style="max-width:440px">
         <div class="eyebrow">Agenda</div>
         <h2>Today and the next days, at a glance.</h2>
-        <p class="lead">Your calendar colours, all-day events on top, a red line at the current time, the meeting that's running, and the free time in between. Click one for the details.</p>
+        <p class="lead">Your calendar colours, all-day events and Google Tasks on top, a red line at the current time, the meeting that's running, and the free time in between. Tick a task off, or click a meeting for the details.</p>
       </div>
       <div>${frame('agenda', 'dark', { height: 720, zoom: 1.08 })}<div class="caption">Dark</div></div>
       <div>${frame('details', 'light', { height: 720, zoom: 1.08 })}<div class="caption">Light, with an event open</div></div>
