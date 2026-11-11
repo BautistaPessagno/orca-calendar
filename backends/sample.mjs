@@ -102,3 +102,53 @@ export function createSampleBackend({ now = Date.now, timeZone } = {}) {
     }
   }
 }
+
+// Made-up Google Tasks for the sample week: one overdue, one done, the rest due today and later.
+// Ticks are kept in memory only, like the answers above.
+const TASK_LISTS = [
+  { id: 'my-tasks', title: 'My Tasks' },
+  { id: 'errands', title: 'Errands' }
+]
+
+export function createSampleTasks({ now = Date.now, timeZone } = {}) {
+  const ticks = new Map()
+  const all = () => {
+    const today = dayKey(now(), timeZone)
+    const make = (id, listId, title, offset, extra = {}) => {
+      const done = ticks.get(id) ?? extra.done ?? false
+      return {
+        id,
+        listId,
+        listTitle: TASK_LISTS.find((l) => l.id === listId).title,
+        title,
+        notes: extra.notes ?? null,
+        due: addDays(today, offset),
+        done,
+        completedAt: done ? now() : null,
+        parentId: null,
+        assigned: false,
+        link: null
+      }
+    }
+    return [
+      make('q4-report', 'my-tasks', 'Send the Q4 report', -1, { notes: 'Numbers from finance, slides from Ana.' }),
+      make('review-pr', 'my-tasks', 'Review Ana’s onboarding PR', 0),
+      make('flights', 'my-tasks', 'Book flights for the offsite', 0, { done: true }),
+      make('passport', 'errands', 'Renew passport', 1),
+      make('gift', 'errands', 'Birthday gift for Kai', 2)
+    ]
+  }
+  return {
+    async lists() {
+      return TASK_LISTS.map((l) => ({ ...l }))
+    },
+    async tasks({ today, end, lists }) {
+      const ids = new Set(lists.map((l) => l.id))
+      return all().filter((t) => ids.has(t.listId) && ((!t.done && t.due < today) || (t.due >= today && t.due < end)))
+    },
+    async setDone(task, done) {
+      ticks.set(task.id, done)
+      return { ...task, done, completedAt: done ? now() : null }
+    }
+  }
+}

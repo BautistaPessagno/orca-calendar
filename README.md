@@ -13,6 +13,7 @@ share link: `orca://plugins/bautistapessagno.calendar?catalog=community`
 - **Join** Google Meet, Zoom, Microsoft Teams and Slack huddle calls with one click.
 - **A reminder** a few minutes before each meeting, as a desktop notification.
 - **Answer invitations**: Yes, No or Maybe on a Google Calendar invitation, from the panel.
+- **Google Tasks** on the day they're due, overdue ones on today, with a checkbox to tick them off.
 - **Pick your calendars**, see declined events if you want them, and choose how many days to show.
 
 Not affiliated with Google or Apple.
@@ -21,7 +22,7 @@ Not affiliated with Google or Apple.
 
 | | |
 | --- | --- |
-| ![The agenda in dark theme, and in light theme with an event open: Join, room, guests and their answers](images/agenda.png) | ![The status bar counting down in grey, then amber, then "now"; a reminder notification; the panel with Join](images/reminders.png) |
+| ![The agenda in dark and light theme: Google Tasks on today, Join, room, guests and their answers](images/agenda.png) | ![The status bar counting down in grey, then amber, then "now"; a reminder notification; the panel with Join](images/reminders.png) |
 | ![An invitation with Going? Yes, No, Maybe next to the calendar picker](images/invitations.png) | ![The Connect Google Calendar screen next to the sample week and its way to Google](images/setup.png) |
 
 The images show the made-up sample week. `node scripts/render-listing-images.mjs` renders them again from the real panel.
@@ -112,6 +113,26 @@ that allowed Calendar to change your events. If you connected before turning it 
 offers **Connect Google again**. Turn off **Answer invitations** in Orca Settings → Calendar to
 keep the login read-only.
 
+## Google Tasks
+
+With Google Calendar as the source, your Google Tasks show in the agenda on the day they're due,
+under the all-day events. Unfinished tasks from earlier days lead today, marked overdue. Tick the
+circle to mark a task done in Google, or tick it again to undo. Google's Tasks API has no time of
+day, only a date, so tasks never count for the status bar or reminders.
+
+Tasks are optional. Connect asks for them along with your calendar, and you can untick them on
+Google's screen. Without them, or without the API turned on, the agenda shows your calendar exactly
+as before. To add them:
+
+1. In your Google Cloud project: **APIs & Services → Library → Google Tasks API → Enable**.
+2. Under **Data Access**, add `https://www.googleapis.com/auth/tasks` (or `tasks.readonly`, see
+   below).
+3. In Orca, open the calendar menu: under **Tasks**, press **Show Google Tasks: connect Google
+   again**.
+
+The calendar menu also hides or shows each task list. Turn off **Tick off tasks** in Orca
+Settings → Calendar to keep the Tasks login read-only; it takes effect when you connect again.
+
 ## Mac calendars
 
 Pick **Mac** in the panel's calendar menu (or leave the source on Auto), then press **Allow
@@ -130,6 +151,7 @@ Orca Settings → Calendar:
 | Minutes before | 5 | 0 shows it as the meeting starts |
 | Show declined events | Off | Shown struck through; they never count for the status bar or reminders |
 | Answer invitations | On | Yes / No / Maybe on Google invitations; off keeps the Google login read-only |
+| Tick off tasks | On | A checkbox on Google Tasks; off keeps the Tasks login read-only |
 | Google OAuth client ID | | Filled in by the panel |
 | Login port | 43119 | Where Google sends you back after signing in |
 
@@ -145,8 +167,9 @@ to the next one five minutes before it starts.
 
 ## Privacy
 
-Calendar reads your events to show them. It never creates, edits or deletes one; the only thing
-it changes is your answer to an invitation, and only when you press Yes, No or Maybe. The worker
+Calendar reads your events and tasks to show them. It never creates, edits or deletes an event; it
+changes only your answer to an invitation, when you press Yes, No or Maybe, and whether a task is
+done, when you tick it. The worker
 fetches from Google (or reads your Mac's calendar store) on this computer and keeps the agenda
 in memory. It stores which calendars you hid and which meetings it already reminded you of, in
 Orca's storage for the plugin. The join button only opens https links to Google Meet, Zoom,
@@ -174,12 +197,12 @@ node scripts/render-listing-images.mjs  # the plugin page's cover, screenshots a
 
 - `worker.mjs`: the worker entry: panel requests, the status bar, reminders.
 - `src/service.mjs`: which backend, which calendars, the last agenda read.
-- `backends/google/`: OAuth (PKCE, loopback), the API client, the event normalizer.
+- `backends/google/`: OAuth (PKCE, loopback), the API client, the event normalizer, `tasks.mjs` for Google Tasks.
 - `backends/eventkit/`: `eventkit.js` runs under `osascript -l JavaScript`; `backend.mjs` wraps it.
 - `backends/sample.mjs`: the made-up week.
 - `shared/`: the agenda, join links and time formatting, used by both the worker and the panel.
 - `panel/index.html`: the sidebar panel.
-- `docs/research/calendar-backends.md`, `docs/specs/calendar/spec.md`: why it's built this way.
+- `docs/research/calendar-backends.md`, `docs/specs/calendar/spec.md`, `docs/specs/tasks/spec.md`: why it's built this way.
 
 ## License
 

@@ -180,3 +180,152 @@ test('a failure is logged once, not again on every read that fails the same way'
   await service.load()
   assert.equal(logs.length, 2)
 })
+
+// ---------- Google Tasks: an extra that never changes the calendar's own state ----------
+
+const task = (id, listId, due, extra = {}) => ({ id, listId, listTitle: listId, title: id, notes: null, due, done: false, completedAt: null, parentId: null, assigned: false, link: null, ...extra })
+
+function fakeTasks({ lists = [{ id: 'l1', title: 'My Tasks' }, { id: 'l2', title: 'Errands' }], tasks = [], fail } = {}) {
+  const reads = []
+  const done = []
+  return {
+    reads,
+    done,
+    lists: async () => {
+      if (fail) throw fail
+      return lists
+    },
+    tasks: async (query) => {
+      reads.push(query)
+      return tasks.filter((t) => query.lists.some((l) => l.id === t.listId))
+    },
+    setDone: async (t, value) => (done.push([t.id, value]), { ...t, done: value })
+  }
+}
+
+function setupTasks({ access = 'write', source = fakeTasks(), settings = {}, storage = {}, backend } = {}) {
+  backend ??= fakeBackend('google', { events: [ev('meet', 'a', Date.parse('2026-11-11T10:00:00Z'), Date.parse('2026-11-11T11:00:00Z'))] })
+  const accessCalls = []
+  const service = createService({
+    backends: { google: backend, eventkit: fakeBackend('eventkit'), sample: fakeBackend('sample') },
+    taskSources: { google: source },
+    taskAccess: async (id) => (accessCalls.push(id), access),
+    settings: fakeSettings({ backend: 'google', days: 3, ...settings }),
+    storage: fakeStorage(storage),
+    platform: 'darwin',
+    now: () => Date.parse('2026-11-11T09:00:00Z'),
+    timeZone: 'UTC'
+  })
+  return { service, source, accessCalls }
+}
+
+test('tasks: read with the agenda when the login has a Tasks scope', async () => {
+  const source = fakeTasks({ tasks: [task('report', 'l1', '2026-11-11'), task('milk', 'l2', '2026-11-12')] })
+  const { service } = setupTasks({ source })
+  const snap = await service.load()
+  assert.equal(snap.status, 'ready')
+  assert.equal(snap.events.length, 1)
+  assert.equal(snap.tasksStatus, 'ready')
+  assert.deepEqual(snap.tasks.map((t) => t.id), ['report', 'milk'])
+  assert.deepEqual(snap.taskLists, [{ id: 'l1', title: 'My Tasks', shown: true }, { id: 'l2', title: 'Errands', shown: true }])
+  assert.deepEqual({ today: source.reads[0].today, end: source.reads[0].end }, { today: '2026-11-11', end: '2026-11-14' })
+  assert.equal(snap.capabilities.completeTasks, true)
+})
+
+test('tasks: a login without a Tasks scope reads no tasks and changes nothing else', async () => {
+  const source = fakeTasks({ tasks: [task('report', 'l1', '2026-11-11')] })
+  const { service } = setupTasks({ access: 'none', source })
+  const snap = await service.load()
+  assert.equal(snap.status, 'ready')
+  assert.equal(snap.message, undefined)
+  assert.equal(snap.events.length, 1)
+  assert.equal(snap.tasksStatus, 'no-scope')
+  assert.deepEqual(snap.tasks, [])
+  assert.equal(source.reads.length, 0)
+  assert.equal(snap.capabilities.completeTasks, false)
+})
+
+test('tasks: a source with no Tasks at all (Mac calendars) is "off"', async () => {
+  const { service } = setupTasks()
+  await service.select('eventkit')
+  const snap = await service.load()
+  assert.equal(snap.tasksStatus, 'off')
+  assert.deepEqual(snap.tasks, [])
+})
+
+test('tasks: a disabled Tasks API leaves the calendar as it is and says how to turn it on', async () => {
+  const fail = new CalendarError('error', 'Enable the Google Tasks API in your Google Cloud project.', { reason: 'api-disabled' })
+  const { service } = setupTasks({ source: fakeTasks({ fail }) })
+  const snap = await service.load()
+  assert.equal(snap.status, 'ready')
+  assert.equal(snap.message, undefined)
+  assert.equal(snap.events.length, 1)
+  assert.equal(snap.tasksStatus, 'api-disabled')
+  assert.match(snap.tasksMessage, /Google Tasks API/)
+})
+
+test('tasks: a Tasks permission Google refuses counts as no scope, not as an ended login', async () => {
+  const fail = new CalendarError('unauthenticated', 'Calendar needs a permission.', { reason: 'scope' })
+  const snap = await setupTasks({ source: fakeTasks({ fail }) }).service.load()
+  assert.equal(snap.status, 'ready')
+  assert.equal(snap.tasksStatus, 'no-scope')
+})
+
+test('tasks: a failed read keeps the last tasks and leaves the calendar status alone', async () => {
+  const source = fakeTasks({ tasks: [task('report', 'l1', '2026-11-11')] })
+  const { service } = setupTasks({ source })
+  await service.load()
+  source.lists = async () => {
+    throw new CalendarError('offline', 'Can’t reach Google.')
+  }
+  const snap = await service.load()
+  assert.equal(snap.status, 'ready')
+  assert.equal(snap.tasksStatus, 'error')
+  assert.equal(snap.tasksMessage, 'Can’t reach Google.')
+  assert.deepEqual(snap.tasks.map((t) => t.id), ['report'])
+})
+
+test('tasks: a calendar that needs setup reads no tasks', async () => {
+  const backend = fakeBackend('google', { fail: new CalendarError('needs-setup', 'Connect your Google account.') })
+  const { service, source } = setupTasks({ backend })
+  const snap = await service.load()
+  assert.equal(snap.status, 'needs-setup')
+  assert.equal(snap.tasksStatus, 'off')
+  assert.deepEqual(snap.tasks, [])
+  assert.equal(source.reads.length, 0)
+})
+
+test('tasks: hiding a task list sticks and leaves it out of the read', async () => {
+  const storage = {}
+  const source = fakeTasks({ tasks: [task('report', 'l1', '2026-11-11'), task('milk', 'l2', '2026-11-11')] })
+  const { service } = setupTasks({ source, storage })
+  await service.load()
+  await service.setTaskList('l2', false)
+  const snap = await service.load()
+  assert.deepEqual(snap.taskLists.map((l) => [l.id, l.shown]), [['l1', true], ['l2', false]])
+  assert.deepEqual(source.reads.at(-1).lists.map((l) => l.id), ['l1'])
+  assert.deepEqual(snap.tasks.map((t) => t.id), ['report'])
+  assert.equal(storage.calendars['google:tasks:l2'], false)
+})
+
+test('tasks: ticking one done shows at once, then re-reads', async () => {
+  const source = fakeTasks({ tasks: [task('report', 'l1', '2026-11-11')] })
+  const { service } = setupTasks({ source })
+  await service.load()
+  const heard = []
+  service.onChange((s) => heard.push(s.tasks[0]?.done))
+  await service.completeTask('report', 'l1', true)
+  assert.deepEqual(source.done, [['report', true]])
+  assert.equal(heard[0], true)
+})
+
+test('tasks: no checkbox with a read-only login or with the setting off', async () => {
+  const source = fakeTasks({ tasks: [task('report', 'l1', '2026-11-11')] })
+  source.setDone = async () => assert.fail('must not write')
+  const read = setupTasks({ access: 'read', source }).service
+  assert.equal((await read.load()).capabilities.completeTasks, false)
+  await assert.rejects(read.completeTask('report', 'l1', true), /can’t tick/)
+  const off = setupTasks({ source, settings: { completeTasks: false } }).service
+  assert.equal((await off.load()).capabilities.completeTasks, false)
+  await assert.rejects(off.completeTask('report', 'l1', true), /Tick off tasks/)
+})

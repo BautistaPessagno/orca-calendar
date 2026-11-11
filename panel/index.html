@@ -129,6 +129,26 @@
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       }
 
+      /* Google Tasks: a round checkbox in the dot's column, the title, and "overdue" on the right. */
+      .task {
+        display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; column-gap: 8px; align-items: center;
+        padding: 4px 6px; border-radius: var(--radius);
+      }
+      .task:hover { background: var(--hover); }
+      .tick {
+        width: 14px; height: 14px; margin-left: -2px; padding: 0; border-radius: 50%;
+        border: 1.8px solid var(--today); background: none; display: grid; place-items: center; color: var(--on-today);
+      }
+      .tick svg { opacity: 0; }
+      button.tick:hover svg { opacity: 0.45; color: var(--today); }
+      .tick:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+      .task.done .tick { background: var(--today); }
+      .task.done .tick svg { opacity: 1; color: var(--on-today); }
+      .task .title { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .task.done .title { text-decoration: line-through; color: var(--muted); }
+      .tag.overdue { color: var(--no); }
+      .hint { margin: 0; font-size: 12.5px; color: var(--muted); }
+
       .event {
         position: relative;
         display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; column-gap: 8px; align-items: start;
@@ -137,7 +157,7 @@
       }
       .event:hover { background: var(--hover); }
       .event .dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 4px; background: var(--c); }
-      .event .what { min-width: 0; border: 0; padding: 0; margin: 0; background: none; color: inherit; font: inherit; text-align: left; }
+      .event .what, .task .what { min-width: 0; border: 0; padding: 0; margin: 0; background: none; color: inherit; font: inherit; text-align: left; }
       .event .title { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .event .when { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .event .side { display: flex; align-items: center; gap: 6px; padding-top: 1px; }
@@ -313,6 +333,8 @@
       let busy = false
       let answering = null // id of the event whose answer is being sent
       let answerError = null // { id, message }
+      let ticking = new Set() // "<list>/<task>" being sent
+      let taskError = null // the last tick Google refused
 
       async function load(refresh = false) {
         busy = true
@@ -359,9 +381,10 @@
       }
 
       function renderAgenda(now) {
-        const agenda = buildAgenda(snap.events || [], { now, days: snap.days || 3, showDeclined: snap.showDeclined })
+        const agenda = buildAgenda(snap.events || [], { now, days: snap.days || 3, showDeclined: snap.showDeclined, tasks: snap.tasks || [] })
         const html = []
         if (snap.status !== 'ready' && snap.message) html.push(`<div class="banner" role="status">${esc(snap.message)}</div>`)
+        if (taskError) html.push(`<div class="banner" role="alert">${esc(taskError)}</div>`)
         if (snap.backend === 'sample') html.push(renderSampleCard())
         html.push(renderNext(now))
         html.push('<div class="agenda">')
@@ -403,8 +426,12 @@
           html.push(`<button class="chip" style="background:${safeColor(event.color)}" data-open="${esc(event.id)}" title="${esc(event.title)}">${esc(event.title)}</button>`)
           if (open.has(event.id)) html.push(renderDetails(event))
         }
+        for (const item of day.tasks || []) {
+          html.push(renderTask(item))
+          if (open.has(taskKey(item.task))) html.push(renderTaskDetails(item.task))
+        }
         const timed = day.items.filter((i) => i.type === 'event')
-        if (!timed.length && !day.allDay.length) html.push(`<div class="empty-day">${day.today ? 'Nothing else today' : 'Nothing scheduled'}</div>`)
+        if (!timed.length && !day.allDay.length && !(day.tasks || []).length) html.push(`<div class="empty-day">${day.today ? 'Nothing else today' : 'Nothing scheduled'}</div>`)
         for (const item of day.items) {
           if (item.type === 'now') {
             if (timed.length) html.push(`<div class="now-line" role="presentation"><span class="tabular">${esc(time(item.at))}</span></div>`)
@@ -446,6 +473,68 @@
           </button>
           <div class="side">${side.join('')}</div>
         </div>`
+      }
+
+      // ---------- Google Tasks ----------
+      const taskKey = (task) => `task:${task.listId}/${task.id}`
+
+      function renderTask({ task, overdue }) {
+        const canTick = snap.capabilities?.completeTasks
+        const sending = ticking.has(taskKey(task))
+        const label = `Mark “${task.title}” ${task.done ? 'not done' : 'done'}`
+        const tick = canTick
+          ? `<button class="tick" data-task="${esc(task.id)}" data-list="${esc(task.listId)}" data-done="${!task.done}" aria-pressed="${task.done}" aria-label="${esc(label)}" title="${esc(label)}"${sending ? ' disabled' : ''}>${icon('check', 10)}</button>`
+          : `<span class="tick" aria-hidden="true">${icon('check', 10)}</span>`
+        const late = overdue ? `<span class="tag overdue">Overdue · ${esc(dayFmt({ weekday: 'short', month: 'short', day: 'numeric' }).format(parseDate(task.due)))}</span>` : ''
+        return `<div class="task${task.done ? ' done' : ''}">${tick}<button class="what" data-open="${esc(taskKey(task))}" aria-expanded="${open.has(taskKey(task))}"><div class="title">${esc(task.title)}</div></button>${late}</div>`
+      }
+
+      function renderTaskDetails(task) {
+        const rows = [`<div class="row">${icon('clock', 16)}<div>Due ${esc(dayFmt({ weekday: 'long', day: 'numeric', month: 'long' }).format(parseDate(task.due)))}${task.done ? ' <span class="sub">· done</span>' : ''}</div></div>`]
+        rows.push(`<div class="row">${icon('check', 16)}<div>${esc(task.listTitle)}${task.assigned ? ' <span class="sub">· assigned to you</span>' : ''}</div></div>`)
+        if (task.notes) rows.push(`<div class="row">${icon('notes', 16)}<div class="notes">${esc(task.notes)}</div></div>`)
+        if (task.link) rows.push(`<div class="row">${icon('external', 16)}<div><button class="linkish" data-url="${esc(task.link)}">Open in Google Tasks</button></div></div>`)
+        return `<div class="details">${rows.join('')}</div>`
+      }
+
+      // The tick shows at once; Google's answer (or its refusal) follows.
+      async function tickTask(id, listId, done) {
+        const task = (snap.tasks || []).find((t) => t.id === id && t.listId === listId)
+        if (!task || ticking.has(taskKey(task))) return
+        const key = taskKey(task)
+        ticking.add(key)
+        task.done = done
+        taskError = null
+        render()
+        try {
+          snap = await request('task.complete', { id, listId, done })
+        } catch (error) {
+          task.done = !done
+          taskError = error?.message || 'The task didn’t change. Try again.'
+        } finally {
+          ticking.delete(key)
+        }
+        render()
+      }
+
+      // In the calendar picker: the task lists, or what's missing for tasks to show.
+      function renderTaskSection() {
+        const status = snap.tasksStatus
+        if (!status || status === 'off') return ''
+        const title = '<div class="section-title">Tasks</div>'
+        if (status === 'no-scope') {
+          const action = login.url
+            ? `<button class="btn primary" id="signin" style="height:28px;justify-self:start">Sign in with Google</button>`
+            : `<button class="linkish" id="reauth">Show Google Tasks: connect Google again</button>`
+          return `${title}<div style="display:grid;gap:6px"><p class="hint">See your Google Tasks next to your meetings. Google asks you to allow it once.</p>${action}${login.error ? `<span class="error">${esc(login.error)}</span>` : ''}</div>`
+        }
+        if (status === 'api-disabled') {
+          return `${title}<div style="display:grid;gap:6px"><p class="hint">${esc(snap.tasksMessage || 'Turn on the Google Tasks API in your Google Cloud project.')}</p><button class="linkish" data-url="https://console.cloud.google.com/apis/library/tasks.googleapis.com">Open the Google Tasks API in Google Cloud</button></div>`
+        }
+        const lists = (snap.taskLists || []).map((l) => `
+            <label class="cal" style="--c:var(--today)"><input type="checkbox" data-tasklist="${esc(l.id)}"${l.shown ? ' checked' : ''} /><span class="box">${icon('check', 14)}</span><span class="t">${esc(l.title)}</span></label>`).join('')
+        const error = status === 'error' && snap.tasksMessage ? `<p class="hint error">${esc(snap.tasksMessage)}</p>` : ''
+        return `${title}${lists || '<p class="hint">No task lists.</p>'}${error}`
       }
 
       function initials(name) {
@@ -548,9 +637,9 @@
           <details class="help" id="help"${clientId ? '' : ' open'}><summary>Create your Google sign-in (once)</summary>
             <ol class="steps">
               <li>Open <button class="linkish" data-url="https://console.cloud.google.com/projectcreate">console.cloud.google.com</button> with your work account and create a project, e.g. “Orca Calendar”. Keep your company as its organization.</li>
-              <li>APIs &amp; Services → Library → <b>Google Calendar API</b> → Enable.</li>
+              <li>APIs &amp; Services → Library → <b>Google Calendar API</b> → Enable. To see your Google Tasks too, also enable <b>Google Tasks API</b>.</li>
               <li>Google Auth Platform → Get started. Audience: <b>Internal</b> (your company only, no expiry). If Internal isn't offered, pick External and add yourself under Test users; you'll reconnect every 7 days.</li>
-              <li>Data Access → Add scopes: <code>calendar.calendarlist.readonly</code> and <code>${auth?.rsvp === false ? 'calendar.events.readonly' : 'calendar.events'}</code>${auth?.rsvp === false ? '' : ' (lets you answer invitations; turn off “Answer invitations” in Settings for read-only)'}.</li>
+              <li>Data Access → Add scopes: <code>calendar.calendarlist.readonly</code> and <code>${auth?.rsvp === false ? 'calendar.events.readonly' : 'calendar.events'}</code>${auth?.rsvp === false ? '' : ' (lets you answer invitations; turn off “Answer invitations” in Settings for read-only)'}. For Google Tasks, also <code>${auth?.completeTasks === false ? 'tasks.readonly' : 'tasks'}</code>.</li>
               <li>Clients → Create client → Application type <b>Desktop app</b> → Create. Copy the client ID and the client secret below.</li>
             </ol>
           </details>
@@ -634,6 +723,7 @@
           <div class="section-title">Source</div>
           <div class="seg" role="group" aria-label="Calendar source">${sources.map(([id, label]) => `<button data-backend="${id}" aria-pressed="${snap.backend === id}">${label}</button>`).join('')}</div>
           ${list || '<p>No calendars to pick yet.</p>'}
+          ${renderTaskSection()}
           <div class="section-title">View</div>
           <div class="switch-row"><span>Days to show</span><select class="days" id="days">${[1, 2, 3, 5, 7, 14].map((n) => `<option value="${n}"${n === snap.days ? ' selected' : ''}>${n}</option>`).join('')}</select></div>
           <label class="cal" style="--c:var(--today)"><input type="checkbox" id="declined"${snap.showDeclined ? ' checked' : ''} /><span class="box">${icon('check', 14)}</span><span class="t">Show declined events</span></label>
@@ -656,7 +746,7 @@
         }
         if (target.dataset.url) {
           const url = target.dataset.url
-          if (/^https:\/\/(www\.google\.com\/calendar\/|calendar\.google\.com\/|console\.cloud\.google\.com\/)/.test(url)) openUrl(url)
+          if (/^https:\/\/(www\.google\.com\/calendar\/|calendar\.google\.com\/|console\.cloud\.google\.com\/|tasks\.google\.com\/)/.test(url)) openUrl(url)
           return
         }
         if (target.dataset.open) {
@@ -673,6 +763,8 @@
         }
         if (target.dataset.answer) return void answer(target.dataset.event, target.dataset.calendar, target.dataset.answer)
         if (target.dataset.cal) return void act('calendars.set', { id: target.dataset.cal, shown: target.checked })
+        if (target.dataset.tasklist) return void act('tasks.lists.set', { id: target.dataset.tasklist, shown: target.checked })
+        if (target.dataset.task) return void tickTask(target.dataset.task, target.dataset.list, target.dataset.done === 'true')
         switch (target.id) {
           case 'refresh':
             return void load(true)
