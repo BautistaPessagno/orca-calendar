@@ -112,3 +112,19 @@ test('listeners hear each new agenda', async () => {
   await service.load()
   assert.deepEqual(heard, ['eventkit'])
 })
+
+test('a switch while a read runs starts a new read with the new backend', async () => {
+  let release
+  const slow = fakeBackend('eventkit')
+  const gate = new Promise((r) => (release = r))
+  const calendars = slow.calendars
+  slow.calendars = async () => (await gate, calendars())
+  const { service } = setup({ backends: { eventkit: slow, google: fakeBackend('google'), sample: fakeBackend('sample') } })
+  const first = service.load()
+  await service.select('sample')
+  const second = service.load()
+  release()
+  assert.equal((await second).backend, 'sample')
+  await first
+  assert.equal(service.snapshot.backend, 'sample')
+})
