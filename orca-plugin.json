@@ -4,7 +4,7 @@
   "execution": "trusted-worker",
   "id": "calendar",
   "name": "Calendar",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Your Google Calendar in Orca's sidebar: today's agenda and the next days, the next meeting counting down in the status bar, a join button for Meet, Zoom, Teams and Slack huddles, and a reminder before each meeting. Works with your Mac's calendars with no setup. Not affiliated with Google or Apple.",
   "author": {
     "name": "Bautista Pessagno",
