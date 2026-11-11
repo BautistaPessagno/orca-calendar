@@ -13,7 +13,7 @@ const formatter = (locale, options) => {
   return cache.get(key)
 }
 
-export const formatTime = (ms, { locale, timeZone } = {}) => formatter(locale, { timeZone, hour: '2-digit', minute: '2-digit' }).format(new Date(ms))
+export const formatTime = (ms, { locale, timeZone } = {}) => formatter(locale, { timeZone, hour: 'numeric', minute: '2-digit' }).format(new Date(ms))
 
 export const formatRange = (start, end, options) => `${formatTime(start, options)}–${formatTime(end, options)}`
 

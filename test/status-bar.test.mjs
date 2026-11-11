@@ -20,7 +20,7 @@ test('counts down in minutes, then hours and minutes', () => {
     text: 'Standup in 12 min',
     icon: 'calendar',
     tone: 'neutral',
-    tooltip: 'Standup · 09:30–09:45 · Google Meet'
+    tooltip: 'Standup · 9:30–9:45 · Google Meet'
   })
   assert.equal(statusBarView([standup], at('2026-11-11T09:17:30Z'), fmt).text, 'Standup in 13 min')
   assert.equal(statusBarView([standup], at('2026-11-11T08:31:00Z'), { ...fmt, leadMs: 2 * 3600_000 }).text, 'Standup in 59 min')
@@ -35,7 +35,7 @@ test('warning tone inside five minutes, "now" while it runs', () => {
   const now = statusBarView([standup], at('2026-11-11T09:30:00Z'), fmt)
   assert.equal(now.text, 'Standup now')
   assert.equal(now.tone, 'accent')
-  assert.equal(now.tooltip, 'Standup · 09:30–09:45 · Google Meet · ends in 15 min')
+  assert.equal(now.tooltip, 'Standup · 9:30–9:45 · Google Meet · ends in 15 min')
 })
 
 test('back to back: the next meeting takes over five minutes before it starts', () => {
@@ -96,7 +96,7 @@ test('reminders: once per meeting, a set number of minutes before, kept across r
   await reminders.check([standup, review], at('2026-11-11T09:20:00Z'), settings)
   assert.equal(shown.length, 0)
   await reminders.check([standup, review], at('2026-11-11T09:25:00Z'), settings)
-  assert.deepEqual(shown, [{ method: 'notifications.show', title: 'Standup in 5 min', body: '09:30–09:45 · Google Meet' }])
+  assert.deepEqual(shown, [{ method: 'notifications.show', title: 'Standup in 5 min', body: '9:30–9:45 · Google Meet' }])
   await reminders.check([standup, review], at('2026-11-11T09:26:00Z'), settings)
   assert.equal(shown.length, 1)
   reminders = make() // the worker restarted
@@ -105,7 +105,7 @@ test('reminders: once per meeting, a set number of minutes before, kept across r
   assert.equal(reminders.nextAt([standup, review], at('2026-11-11T09:27:00Z'), settings), at('2026-11-11T09:40:00Z'))
   await reminders.check([standup, review], at('2026-11-11T09:41:00Z'), settings)
   assert.equal(shown.at(-1).title, 'Design review in 4 min')
-  assert.equal(shown.at(-1).body, '09:45–10:30 · Room 4')
+  assert.equal(shown.at(-1).body, '9:45–10:30 · Room 4')
 })
 
 test('reminders: off, at the start, and never for a meeting already over', async () => {

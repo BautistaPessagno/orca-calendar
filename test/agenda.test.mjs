@@ -119,3 +119,21 @@ test('meetingState: the running meeting, the next one, and what counts', () => {
   assert.deepEqual(meetingState(events, at('2026-11-11T11:00:00Z')), { current: null, next: null })
   assert.equal(meetingState(events, at('2026-11-11T08:00:00Z'), { hidden: ['work'] }).next, null)
 })
+
+test('free time sits before a "free" event that starts inside it', () => {
+  const now = at('2026-11-11T08:00:00Z')
+  const events = [
+    ev('a', '2026-11-11T09:00:00Z', '2026-11-11T10:00:00Z'),
+    ev('focus', '2026-11-11T10:30:00Z', '2026-11-11T12:00:00Z', { busy: false }),
+    ev('b', '2026-11-11T13:00:00Z', '2026-11-11T14:00:00Z')
+  ]
+  const order = buildAgenda(events, { now, days: 1, timeZone: TZ }).days[0].items.map((i) => i.type + (i.event ? ':' + i.event.id : ''))
+  assert.deepEqual(order, ['now', 'gap', 'event:a', 'gap', 'event:focus', 'event:b'])
+})
+
+test('later days: free time between meetings only', () => {
+  const now = at('2026-11-11T08:00:00Z')
+  const events = [ev('a', '2026-11-12T09:00:00Z', '2026-11-12T10:00:00Z'), ev('b', '2026-11-12T11:00:00Z', '2026-11-12T12:00:00Z')]
+  const order = buildAgenda(events, { now, days: 2, timeZone: TZ }).days[1].items.map((i) => i.type)
+  assert.deepEqual(order, ['event', 'gap', 'event'])
+})

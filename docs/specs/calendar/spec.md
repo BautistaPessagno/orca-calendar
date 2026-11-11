@@ -170,23 +170,27 @@ error, empty day, nothing in N days.
 | `showDeclined` | boolean | false |
 | `rsvp` (stage 2) | boolean | true |
 
-Secrets: `google.clientSecret`, `google.tokens`. Storage: `hiddenCalendars`, `notified`.
+Secrets: `google.clientSecret`, `google.tokens`.
 Capabilities: `settings:own`, `secrets:own`, `storage:own`, `notifications:show`.
 
 ### Worker protocol
 
 ```text
-agenda.get       { days? }            → { backend, status, calendars, events, fetchedAt, capabilities }
-agenda.refresh                        → same, re-read now
-calendars.set    { hidden: string[] } → agenda
-backend.select   { backend }          → agenda
-auth.start       { clientId, clientSecret } → { url }
-auth.status                           → { status: 'idle'|'pending'|'connected'|'failed', message? }
-auth.disconnect                       → { ok }
-eventkit.request                      → status after the macOS prompt
-event.respond    { id, calendarId, response }  → agenda (stage 2)
-post: 'agenda.changed'  agenda
+agenda.get       { refresh? }               → Snapshot { backend, status, message?, calendars, events, stale?, fetchedAt, days, showDeclined, capabilities }
+calendars.set    { id, shown }              → Snapshot
+backend.select   { backend }                → Snapshot   ('auto' | 'google' | 'eventkit' | 'sample')
+prefs.set        { key: 'days' | 'showDeclined', value } → Snapshot
+auth.info                                   → { clientId, hasSecret, connected, missingScopes, protection, redirectUri, platform }
+auth.start       { clientId, clientSecret } → { url }       (the panel opens it on a second press)
+auth.status                                 → { status: 'idle'|'pending'|'connected'|'failed', message? }
+auth.disconnect                             → Snapshot      (revokes at Google, forgets the tokens)
+eventkit.request                            → Snapshot      (shows macOS's prompt once, waits ≤ 60 s)
+event.respond    { id, calendarId, response } → Snapshot    (stage 2)
+post: 'agenda.changed' { fetchedAt, backend, status }
 ```
+
+Storage: `calendars` (`{ "<backend>:<calendar id>": shown }`), `notified`
+(`{ "<event id>@<start>": start }`, pruned after two days).
 
 ## Stages
 

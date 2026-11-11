@@ -33,6 +33,10 @@ const clampDays = (value) => {
 export function createService({ backends, settings, storage, googleReady = async () => false, platform = process.platform, now = Date.now, timeZone, log = () => {} }) {
   let snapshot = null
   let loading = null
+  let loadingGeneration = -1
+  // Rises when what a read depends on changes (backend, calendars), so a read already running
+  // with the old choice is not reused.
+  let generation = 0
   const listeners = new Set()
 
   const read = (key) => Promise.resolve(settings.get(key)).catch(() => undefined)
@@ -86,8 +90,13 @@ export function createService({ backends, settings, storage, googleReady = async
 
     // Reads the calendar now. Concurrent calls share one read.
     load() {
-      loading ??= fetchSnapshot()
+      if (loading && loadingGeneration === generation) return loading
+      const mine = generation
+      loadingGeneration = mine
+      const run = (loading = fetchSnapshot()
         .then((next) => {
+          // A newer read started meanwhile: let it be the one that counts.
+          if (mine !== generation) return loading ?? next
           snapshot = next
           for (const listener of listeners) {
             try {
@@ -99,21 +108,23 @@ export function createService({ backends, settings, storage, googleReady = async
           return next
         })
         .finally(() => {
-          loading = null
-        })
-      return loading
+          if (loading === run) loading = null
+        }))
+      return run
     },
 
     async setCalendar(calendarId, shown) {
       const id = snapshot?.backend ?? (await active())
       const picked = { ...(await choices()), [`${id}:${String(calendarId).slice(0, 1024)}`]: Boolean(shown) }
       await storage.set(CHOICES_KEY, picked)
+      generation++
     },
 
     async select(id) {
       if (id !== 'auto' && !BACKEND_IDS.includes(id)) throw new Error(`Unknown backend: ${id}`)
       await settings.set('backend', id)
       snapshot = null
+      generation++
     },
 
     onChange(listener) {

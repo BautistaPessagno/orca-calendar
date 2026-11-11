@@ -99,48 +99,30 @@ export function buildAgenda(events, { now, days = 3, timeZone, hidden = [], show
       if (event.end > end) item.continues = true
       day.items.push(item)
     }
-    if (i === 0) placeNowAndGaps(day, now, minGapMs)
-    else placeGaps(day, start, minGapMs)
+    placeNowAndGaps(day, now, minGapMs, i === 0)
     result.days.push(day)
   }
   return result
 }
 
-// Free time between busy meetings on a later day, from the first meeting on.
-function placeGaps(day, from, minGapMs) {
-  const items = []
-  let busyUntil = null
-  for (const item of day.items) {
-    const { event } = item
-    const blocks = event.busy !== false && !declined(event)
-    if (blocks && busyUntil !== null && event.start - busyUntil >= minGapMs && busyUntil >= from) {
-      items.push({ type: 'gap', start: busyUntil, end: event.start })
-    }
-    items.push(item)
-    if (blocks) busyUntil = Math.max(busyUntil ?? event.end, event.end)
+// Free time of at least `minGapMs` between busy meetings, and (today) the "now" line, merged
+// into the day's events in time order. On later days free time starts at the first meeting;
+// today it starts now, so the time before the next meeting counts too.
+function placeNowAndGaps(day, now, minGapMs, isToday) {
+  const gaps = []
+  let busyUntil = isToday ? now : null
+  for (const { event } of day.items) {
+    if (event.busy === false || declined(event)) continue
+    const from = busyUntil === null ? null : Math.max(busyUntil, day.start)
+    if (from !== null && event.start - from >= minGapMs && event.start > now) gaps.push({ type: 'gap', start: Math.max(from, isToday ? now : from), end: event.start })
+    busyUntil = busyUntil === null ? event.end : Math.max(busyUntil, event.end)
   }
-  day.items = items
-}
-
-// Today: the "now" line in time order, and free time from now on (also before the next meeting).
-function placeNowAndGaps(day, now, minGapMs) {
-  const items = []
-  let busyUntil = now
-  let nowPlaced = false
-  const placeNow = () => {
-    if (!nowPlaced && now >= day.start && now < day.end) items.push({ type: 'now', at: now })
-    nowPlaced = true
-  }
-  for (const item of day.items) {
-    const { event } = item
-    if (!nowPlaced && event.start > now) placeNow()
-    const blocks = event.busy !== false && !declined(event)
-    if (blocks && event.start > now && event.start - busyUntil >= minGapMs) items.push({ type: 'gap', start: busyUntil, end: event.start })
-    items.push(item)
-    if (blocks && event.end > busyUntil) busyUntil = event.end
-  }
-  placeNow()
-  day.items = items
+  const keyed = day.items.map((item) => [item.continued ? day.start : item.event.start, 0, item])
+  for (const gap of gaps) keyed.push([gap.start, 2, gap])
+  if (isToday && now >= day.start && now < day.end) keyed.push([now, 1, { type: 'now', at: now }])
+  // Events that already started sit before the now line; a gap from now sits after it.
+  keyed.sort((a, b) => a[0] - b[0] || a[1] - b[1])
+  day.items = keyed.map(([, , item]) => item)
 }
 
 // The meeting running now (the one that started last) and the next one to start.
