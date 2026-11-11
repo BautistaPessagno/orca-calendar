@@ -9,6 +9,7 @@ Your meetings in Orca's sidebar, so the next one is never a browser tab away.
   inside five minutes, "now" while it runs, hidden when nothing is coming up within the hour.
 - **Join** Google Meet, Zoom, Microsoft Teams and Slack huddle calls with one click.
 - **A reminder** a few minutes before each meeting, as a desktop notification.
+- **Answer invitations**: Yes, No or Maybe on a Google Calendar invitation, from the panel.
 - **Pick your calendars**, see declined events if you want them, and choose how many days to show.
 
 Not affiliated with Google or Apple.
@@ -48,7 +49,9 @@ Cloud project of your company. You create it once.
      Google ends a test user's login after 7 days, so you'll press Connect again once a week.
 4. **Data Access → Add or remove scopes**, and add:
    - `https://www.googleapis.com/auth/calendar.calendarlist.readonly`
-   - `https://www.googleapis.com/auth/calendar.events.readonly`
+   - `https://www.googleapis.com/auth/calendar.events`, so you can answer invitations from Orca.
+     For a read-only login, add `https://www.googleapis.com/auth/calendar.events.readonly` instead
+     and turn off **Answer invitations** in Orca Settings → Calendar.
 5. **Clients → Create client**. Application type: **Desktop app**. Name: anything. Press
    **Create**, then copy the **Client ID** and the **Client secret**.
 6. In Orca, open the Calendar panel. In its calendar menu, under Source, pick **Google**. Paste the
@@ -79,6 +82,17 @@ Google Workspace admins can stop employees from signing in to apps they haven't 
 Calendar menu → **Disconnect Google**. Calendar asks Google to revoke the login and forgets it.
 You can also remove access at [myaccount.google.com/permissions](https://myaccount.google.com/permissions).
 
+## Answer invitations
+
+Open an invitation in the agenda and press **Yes**, **No** or **Maybe** next to "Going?". Calendar
+changes only your own answer, on that one occurrence of a repeating meeting, and Google emails
+the organizer as it does when you answer in Google Calendar. Nothing is sent until you press.
+
+This needs Google Calendar as the source (macOS doesn't let apps answer invitations) and a login
+that allowed Calendar to change your events. If you connected before turning it on, the panel
+offers **Connect Google again**. Turn off **Answer invitations** in Orca Settings → Calendar to
+keep the login read-only.
+
 ## Mac calendars
 
 Pick **Mac** in the panel's calendar menu (or leave the source on Auto), then press **Allow
@@ -96,6 +110,7 @@ Orca Settings → Calendar:
 | Remind me before meetings | On | A desktop notification for each meeting you haven't declined |
 | Minutes before | 5 | 0 shows it as the meeting starts |
 | Show declined events | Off | Shown struck through; they never count for the status bar or reminders |
+| Answer invitations | On | Yes / No / Maybe on Google invitations; off keeps the Google login read-only |
 | Google OAuth client ID | | Filled in by the panel |
 | Login port | 43119 | Where Google sends you back after signing in |
 
@@ -111,7 +126,8 @@ to the next one five minutes before it starts.
 
 ## Privacy
 
-Calendar reads your events to show them; it never creates, changes or deletes one. The worker
+Calendar reads your events to show them. It never creates, edits or deletes one; the only thing
+it changes is your answer to an invitation, and only when you press Yes, No or Maybe. The worker
 fetches from Google (or reads your Mac's calendar store) on this computer and keeps the agenda
 in memory. It stores which calendars you hid and which meetings it already reminded you of, in
 Orca's storage for the plugin. The join button only opens https links to Google Meet, Zoom,

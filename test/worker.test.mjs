@@ -53,7 +53,7 @@ test('answers the panel with the sample week and updates the status bar', async 
   assert.equal(posts[0].event, 'agenda.changed')
   assert.deepEqual(
     [...handlers.keys()].sort(),
-    ['agenda.get', 'auth.disconnect', 'auth.info', 'auth.start', 'auth.status', 'backend.select', 'calendars.set', 'eventkit.request', 'prefs.set']
+    ['agenda.get', 'auth.disconnect', 'auth.info', 'auth.start', 'auth.status', 'backend.select', 'calendars.set', 'event.respond', 'eventkit.request', 'prefs.set']
   )
 })
 
@@ -70,5 +70,29 @@ test('handler errors reach the panel with a code and a sentence', async () => {
   const { orca, handlers } = fakeOrca()
   activate(orca, { backends: { sample: createSampleBackend(), google: null, eventkit: null } })
   await assert.rejects(handlers.get('auth.start')({ clientId: 'nope', clientSecret: 'x' }), (e) => e.code === 'invalid' && /client ID/.test(e.message))
+  deactivate()
+})
+
+test('event.respond answers an invitation of the sample week, and checks its input', async () => {
+  const { orca, handlers } = fakeOrca()
+  const now = () => Date.parse('2026-11-11T10:07:00Z')
+  activate(orca, { now, backends: { sample: createSampleBackend({ now }), google: null, eventkit: null } })
+  const before = await handlers.get('agenda.get')()
+  assert.equal(before.capabilities.rsvp, true)
+  const invite = before.events.find((e) => e.self?.response === 'needsAction')
+  const after = await handlers.get('event.respond')({ id: invite.id, calendarId: invite.calendarId, response: 'tentative' })
+  assert.equal(after.events.find((e) => e.id === invite.id).self.response, 'tentative')
+  await assert.rejects(handlers.get('event.respond')({ id: invite.id, calendarId: invite.calendarId, response: 'maybe' }), (e) => e.code === 'invalid')
+  deactivate()
+})
+
+test('the rsvp setting decides the scope the Google login asks for', async () => {
+  const { orca, handlers } = fakeOrca({ rsvp: false })
+  const started = []
+  const auth = { connection: async () => ({ connected: false }), start: async (input) => (started.push(input), { url: 'https://accounts.google.com/x' }), status: async () => ({ status: 'idle' }), close() {} }
+  activate(orca, { auth, backends: { sample: createSampleBackend(), google: null, eventkit: null } })
+  await handlers.get('auth.start')({ clientId: 'id', clientSecret: 's' })
+  assert.equal(started[0].rsvp, false)
+  assert.equal((await handlers.get('auth.info')()).rsvp, false)
   deactivate()
 })

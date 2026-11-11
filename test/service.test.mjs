@@ -128,3 +128,33 @@ test('a switch while a read runs starts a new read with the new backend', async 
   await first
   assert.equal(service.snapshot.backend, 'sample')
 })
+
+test('respond: answers through the backend, shows the answer at once, then re-reads', async () => {
+  const events = [{ ...ev('inv', 'a', Date.parse('2026-11-11T10:00:00Z'), Date.parse('2026-11-11T11:00:00Z')), self: { response: 'needsAction', email: 'me@example.com' } }]
+  const backend = fakeBackend('google', { events })
+  backend.capabilities = { rsvp: true }
+  const answers = []
+  backend.respond = async (event, response) => (answers.push([event.id, response]), { ...event, self: { ...event.self, response } })
+  const { service } = setup({ settings: { backend: 'google', rsvp: true }, backends: { google: backend, eventkit: fakeBackend('eventkit'), sample: fakeBackend('sample') } })
+  await service.load()
+  const heard = []
+  service.onChange((s) => heard.push(s.events[0].self.response))
+  await service.respond('inv', 'a', 'accepted')
+  assert.deepEqual(answers, [['inv', 'accepted']])
+  assert.equal(heard[0], 'accepted')
+})
+
+test('respond: refused when the backend or the setting does not allow it', async () => {
+  const events = [{ ...ev('inv', 'a', 1, 2), self: { response: 'needsAction' } }]
+  const mac = fakeBackend('eventkit', { events })
+  const { service } = setup({ backends: { eventkit: mac, google: fakeBackend('google'), sample: fakeBackend('sample') } })
+  await service.load()
+  await assert.rejects(service.respond('inv', 'a', 'accepted'), /can’t answer/)
+  const google = fakeBackend('google', { events })
+  google.capabilities = { rsvp: true }
+  google.respond = async () => assert.fail('must not answer')
+  const off = setup({ settings: { backend: 'google', rsvp: false }, backends: { google, eventkit: mac, sample: fakeBackend('sample') } }).service
+  const snap = await off.load()
+  assert.equal(snap.capabilities.rsvp, false)
+  await assert.rejects(off.respond('inv', 'a', 'accepted'), /Answer invitations/)
+})

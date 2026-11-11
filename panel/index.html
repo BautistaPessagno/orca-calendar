@@ -169,6 +169,17 @@
       .notes { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg); max-height: 9.5em; overflow: auto; }
       .tag { display: inline-block; font-size: 11px; color: var(--muted); }
 
+      .rsvp { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+      .rsvp .q { color: var(--muted); margin-right: 2px; }
+      .rsvp button {
+        height: 26px; padding: 0 12px; border-radius: 13px; border: 1px solid var(--line);
+        background: none; color: var(--fg); font-size: 12px; font-weight: 500;
+        display: inline-flex; align-items: center; gap: 4px;
+      }
+      .rsvp button:hover { background: var(--hover); }
+      .rsvp button[aria-pressed='true'] { background: color-mix(in srgb, var(--today) 16%, transparent); border-color: transparent; color: var(--today); }
+      .rsvp button[disabled] { opacity: 0.55; cursor: default; }
+
       /* ---------- sheets: setup, messages, calendars ---------- */
       .sheet { padding: 14px 16px 20px; display: grid; gap: 12px; }
       .sheet h2 { margin: 0; font-size: 16px; font-weight: 500; }
@@ -288,6 +299,8 @@
       let auth = null // auth.info
       let login = { url: null, error: null, busy: false, polling: null }
       let busy = false
+      let answering = null // id of the event whose answer is being sent
+      let answerError = null // { id, message }
 
       async function load(refresh = false) {
         busy = true
@@ -455,13 +468,43 @@
           const more = people.length > 12 || event.attendeesOmitted ? `<div class="sub">and ${people.length > 12 ? people.length - 12 : 'more'} others</div>` : ''
           rows.push(`<div class="row">${icon('people', 16)}<div class="people"><div class="sub">${people.length} guests · ${esc(summary)}</div>${list.join('')}${more}</div></div>`)
         }
-        if (event.self?.response) {
-          const [, , label] = RESPONSE_ICON[event.self.response] ?? RESPONSE_ICON.needsAction
-          rows.push(`<div class="row">${icon('check', 16)}<div>Your answer: ${esc(label)}</div></div>`)
-        }
+        if (event.self?.response) rows.push(renderAnswer(event))
         if (event.description) rows.push(`<div class="row">${icon('notes', 16)}<div class="notes">${esc(event.description)}</div></div>`)
         if (event.htmlLink) rows.push(`<div class="row">${icon('external', 16)}<div><button class="linkish" data-url="${esc(event.htmlLink)}">Open in Google Calendar</button></div></div>`)
         return `<div class="details">${rows.join('')}</div>`
+      }
+
+      // "Going? Yes No Maybe", as Google Calendar asks it. Writes only on a press.
+      const ANSWERS = [['accepted', 'Yes'], ['declined', 'No'], ['tentative', 'Maybe']]
+      function renderAnswer(event) {
+        const current = event.self.response
+        const canAnswer = snap.capabilities?.rsvp && !event.organizer?.self && event.self.email !== undefined
+        if (!canAnswer) {
+          const [, , label] = RESPONSE_ICON[current] ?? RESPONSE_ICON.needsAction
+          return `<div class="row">${icon('check', 16)}<div>Your answer: ${esc(label)}</div></div>`
+        }
+        if (snap.backend === 'google' && auth?.missingScopes?.length) {
+          const action = login.url ? `<button class="btn primary" id="signin" style="height:28px">Sign in with Google</button>` : `<button class="linkish" id="reauth">Connect Google again to answer invitations</button>`
+          return `<div class="row">${icon('check', 16)}<div style="display:grid;gap:6px;justify-items:start"><span>Your answer: ${esc((RESPONSE_ICON[current] ?? RESPONSE_ICON.needsAction)[2])}</span>${action}${login.error ? `<span class="error">${esc(login.error)}</span>` : ''}</div></div>`
+        }
+        const sending = answering === event.id
+        const buttons = ANSWERS.map(([value, label]) => `<button data-answer="${value}" data-event="${esc(event.id)}" data-calendar="${esc(event.calendarId)}" aria-pressed="${current === value}"${sending ? ' disabled' : ''}>${current === value ? icon('check', 12) : ''}${label}</button>`).join('')
+        const error = answerError?.id === event.id ? `<div class="error" role="alert">${esc(answerError.message)}</div>` : ''
+        return `<div class="row">${icon('check', 16)}<div style="display:grid;gap:6px"><div class="rsvp" role="group" aria-label="Your answer"><span class="q">Going?</span>${buttons}</div>${error}</div></div>`
+      }
+
+      async function answer(eventId, calendarId, response) {
+        answering = eventId
+        answerError = null
+        render()
+        try {
+          snap = await request('event.respond', { id: eventId, calendarId, response })
+        } catch (error) {
+          answerError = { id: eventId, message: error?.message || 'Your answer didn’t go through.' }
+        } finally {
+          answering = null
+        }
+        render()
       }
 
       const SOURCE = { google: 'Google Calendar', eventkit: 'Mac calendars', sample: 'Sample week' }
@@ -484,7 +527,7 @@
               <li>Open <button class="linkish" data-url="https://console.cloud.google.com/projectcreate">console.cloud.google.com</button> with your work account and create a project, e.g. “Orca Calendar”. Keep your company as its organization.</li>
               <li>APIs &amp; Services → Library → <b>Google Calendar API</b> → Enable.</li>
               <li>Google Auth Platform → Get started. Audience: <b>Internal</b> (your company only, no expiry). If Internal isn't offered, pick External and add yourself under Test users; you'll reconnect every 7 days.</li>
-              <li>Data Access → Add scopes: <code>calendar.calendarlist.readonly</code> and <code>calendar.events.readonly</code>.</li>
+              <li>Data Access → Add scopes: <code>calendar.calendarlist.readonly</code> and <code>${auth?.rsvp === false ? 'calendar.events.readonly' : 'calendar.events'}</code>${auth?.rsvp === false ? '' : ' (lets you answer invitations; turn off “Answer invitations” in Settings for read-only)'}.</li>
               <li>Clients → Create client → Application type <b>Desktop app</b> → Create. Copy the client ID and the client secret below.</li>
             </ol>
           </details>
@@ -603,6 +646,7 @@
           render()
           return void act('backend.select', { backend: target.dataset.backend }).then(() => (snap?.backend === 'google' ? request('auth.info').then((a) => ((auth = a), render())) : null))
         }
+        if (target.dataset.answer) return void answer(target.dataset.event, target.dataset.calendar, target.dataset.answer)
         if (target.dataset.cal) return void act('calendars.set', { id: target.dataset.cal, shown: target.checked })
         switch (target.id) {
           case 'refresh':
@@ -625,6 +669,10 @@
             snap = null
             renderLoading()
             return void act('eventkit.request')
+          case 'reauth':
+            return void request('auth.start', {})
+              .then(({ url }) => ((login = { ...login, url, error: null }), render()))
+              .catch((error) => ((login = { ...login, error: error?.message || 'That didn’t work.' }), render()))
           case 'retry':
             return void load(true)
           case 'disconnect':
