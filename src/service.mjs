@@ -36,7 +36,7 @@ const clampDays = (value) => {
   return Number.isFinite(n) && n >= 1 ? Math.min(14, n) : 3
 }
 
-export function createService({ backends, taskSources = {}, taskAccess = async () => 'none', settings, storage, googleReady = async () => false, platform = process.platform, now = Date.now, timeZone, log = () => {} }) {
+export function createService({ backends, taskSources = {}, taskAccess = async () => 'none', tasksWaitMs = 5000, settings, storage, googleReady = async () => false, platform = process.platform, now = Date.now, timeZone, log = () => {} }) {
   let snapshot = null
   let lastLogged = null // the last failure logged, so a repeat of it isn't logged again
   let lastTasksLogged = null
@@ -62,28 +62,54 @@ export function createService({ backends, taskSources = {}, taskAccess = async (
 
   const NO_TASKS = { tasks: [], taskLists: [], tasksStatus: 'off' }
 
-  // The tasks half of a snapshot. Never throws: whatever goes wrong becomes tasksStatus.
+  const logTasks = (line) => {
+    if (line !== lastTasksLogged) log(line)
+    lastTasksLogged = line
+  }
+
+  // The tasks half of the last snapshot, for a read that can't produce its own.
+  const lastTasks = (id, extra = {}) => {
+    const last = snapshot?.backend === id ? snapshot : null
+    const part = last ? { tasks: last.tasks ?? [], taskLists: last.taskLists ?? [], tasksStatus: last.tasksStatus ?? 'off', ...(last.tasksMessage ? { tasksMessage: last.tasksMessage } : {}) } : { ...NO_TASKS }
+    return { part: { ...part, ...extra }, canTick: Boolean(last?.capabilities?.completeTasks) }
+  }
+
+  // The tasks half of a snapshot → { part: { tasks, taskLists, tasksStatus, tasksMessage? }, canTick }.
+  // Never throws: whatever goes wrong becomes tasksStatus.
   async function readTasks(id, picked, today, end) {
     const source = taskSources[id]
-    if (!source) return { ...NO_TASKS, access: 'none' }
+    if (!source) return { part: { ...NO_TASKS }, canTick: false }
     const access = await Promise.resolve(taskAccess(id)).catch(() => 'none')
-    if (access !== 'read' && access !== 'write') return { ...NO_TASKS, tasksStatus: 'no-scope', access: 'none' }
+    if (access !== 'read' && access !== 'write') return { part: { ...NO_TASKS, tasksStatus: 'no-scope' }, canTick: false }
+    const canTick = access === 'write' && (await read('completeTasks')) !== false
     try {
       const taskLists = (await source.lists()).map((l) => ({ ...l, shown: typeof picked[`${id}:tasks:${l.id}`] === 'boolean' ? picked[`${id}:tasks:${l.id}`] : true }))
       const shown = taskLists.filter((l) => l.shown)
-      const tasks = shown.length ? await source.tasks({ today, end, lists: shown }) : []
+      const { tasks, failed = [] } = shown.length ? await source.tasks({ today, end, lists: shown }) : { tasks: [] }
+      if (failed.length) {
+        const message = `Couldn’t read ${failed.length === 1 ? 'the task list' : 'the task lists'} ${failed.map((t) => `“${t}”`).join(', ')}. Calendar tries again at the next refresh.`
+        logTasks(`${id}: tasks: ${message}`)
+        return { part: { tasks, taskLists, tasksStatus: 'error', tasksMessage: message }, canTick }
+      }
       lastTasksLogged = null
-      return { tasks, taskLists, tasksStatus: 'ready', access }
+      return { part: { tasks, taskLists, tasksStatus: 'ready' }, canTick }
     } catch (failure) {
       const error = toCalendarError(failure)
-      const line = `${id}: tasks: ${error.message}`
-      if (line !== lastTasksLogged) log(line)
-      lastTasksLogged = line
-      if (error.reason === 'scope') return { ...NO_TASKS, tasksStatus: 'no-scope', access: 'none' }
-      if (error.reason === 'api-disabled') return { ...NO_TASKS, tasksStatus: 'api-disabled', tasksMessage: error.message, access }
-      const keep = snapshot?.backend === id
-      return { tasks: keep ? snapshot.tasks ?? [] : [], taskLists: keep ? snapshot.taskLists ?? [] : [], tasksStatus: 'error', tasksMessage: error.message, access }
+      logTasks(`${id}: tasks: ${error.message}`)
+      if (error.reason === 'scope') return { part: { ...NO_TASKS, tasksStatus: 'no-scope' }, canTick: false }
+      if (error.reason === 'api-disabled') return { part: { ...NO_TASKS, tasksStatus: 'api-disabled', tasksMessage: error.message }, canTick: false }
+      return { ...lastTasks(id, { tasksStatus: 'error', tasksMessage: error.message }), canTick }
     }
+  }
+
+  // Waits for a tasks read at most `tasksWaitMs` once the events are in; past that the last tasks
+  // stay, so a slow Tasks API never holds the calendar back.
+  function settleTasks(id, read) {
+    let timer
+    const late = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(lastTasks(id, { tasksStatus: 'error', tasksMessage: 'Google Tasks is slow to answer. Calendar tries again at the next refresh.' })), tasksWaitMs)
+    })
+    return Promise.race([read, late]).finally(() => clearTimeout(timer))
   }
 
   async function fetchSnapshot() {
@@ -93,27 +119,24 @@ export function createService({ backends, taskSources = {}, taskAccess = async (
     const showDeclined = (await read('showDeclined')) === true
     // Answering invitations needs a backend that can, and the `rsvp` setting on.
     const rsvp = Boolean(backend.capabilities?.rsvp && backend.respond) && (await read('rsvp')) !== false
-    const completeTasksOn = (await read('completeTasks')) !== false
     const base = { backend: id, days, showDeclined, capabilities: { ...(backend.capabilities ?? {}), rsvp, completeTasks: false }, fetchedAt: now(), ...NO_TASKS }
-    const picked = await choices()
-    const today = dayKey(now(), timeZone)
-    // Started once the calendar list answered, so it runs next to the event reads; never when
-    // the calendar needs setup.
+    // Started once the calendar list answered, so it runs next to the event reads.
     let tasksRead = null
-    const startTasks = () => (tasksRead ??= readTasks(id, picked, today, addDays(today, days)))
-    const withTasks = async (snap) => {
-      const { access, ...part } = await startTasks()
-      return { ...snap, ...part, capabilities: { ...snap.capabilities, completeTasks: access === 'write' && completeTasksOn && part.tasksStatus !== 'no-scope' } }
+    const withTasks = async (snap, read) => {
+      const { part, canTick } = read ? await settleTasks(id, read) : lastTasks(id)
+      return { ...snap, ...part, capabilities: { ...snap.capabilities, completeTasks: canTick } }
     }
     try {
+      const picked = await choices()
+      const today = dayKey(now(), timeZone)
       const calendars = (await backend.calendars()).map((c) => ({ ...c, shown: typeof picked[`${id}:${c.id}`] === 'boolean' ? picked[`${id}:${c.id}`] : c.selected !== false }))
-      startTasks()
+      tasksRead = readTasks(id, picked, today, addDays(today, days))
       const from = startOfDay(today, timeZone)
       const to = startOfDay(addDays(today, days), timeZone)
       const shown = calendars.filter((c) => c.shown)
       const events = shown.length ? await backend.events({ from, to, calendars: shown }) : []
       lastLogged = null
-      return withTasks({ ...base, status: 'ready', calendars, events })
+      return withTasks({ ...base, status: 'ready', calendars, events }, tasksRead)
     } catch (failure) {
       const error = toCalendarError(failure)
       const line = `${id}: ${error.kind}: ${error.message}`
@@ -129,7 +152,8 @@ export function createService({ backends, taskSources = {}, taskAccess = async (
         ...(keep && snapshot.events.length ? { stale: true, fetchedAt: snapshot.fetchedAt } : {}),
         ...(error.retryAfterMs ? { retryAfterMs: error.retryAfterMs } : {})
       }
-      return BLOCKING.has(error.kind) ? failed : withTasks(failed)
+      // A setup state shows no agenda, so no tasks either; otherwise tasks as read, or the last.
+      return BLOCKING.has(error.kind) ? failed : withTasks(failed, tasksRead)
     }
   }
 
@@ -211,7 +235,9 @@ export function createService({ backends, taskSources = {}, taskAccess = async (
       const task = (snap.tasks ?? []).find((t) => t.id === taskId && t.listId === listId)
       if (!task) throw new CalendarError('invalid', 'That task isn’t in the agenda any more. Refresh and try again.')
       const source = taskSources[snap.backend]
-      if (!source?.setDone || !['ready', 'error'].includes(snap.tasksStatus)) throw new CalendarError('invalid', 'This calendar source can’t tick off tasks.')
+      if (!source?.setDone) throw new CalendarError('invalid', 'This calendar source can’t tick off tasks.')
+      if (snap.tasksStatus === 'api-disabled') throw new CalendarError('invalid', snap.tasksMessage || 'Turn on the Google Tasks API in your Google Cloud project.')
+      if (snap.tasksStatus === 'no-scope') throw new CalendarError('invalid', 'Your Google login can’t tick off tasks. Connect Google again and allow Google Tasks.')
       if (!snap.capabilities?.completeTasks) {
         throw new CalendarError('invalid', (await read('completeTasks')) === false ? 'Turn on “Tick off tasks” in Orca Settings → Calendar to tick tasks from Orca.' : 'Your Google login can’t tick off tasks. Connect Google again and allow Google Tasks.')
       }

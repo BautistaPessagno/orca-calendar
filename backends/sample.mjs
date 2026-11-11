@@ -144,7 +144,7 @@ export function createSampleTasks({ now = Date.now, timeZone } = {}) {
     },
     async tasks({ today, end, lists }) {
       const ids = new Set(lists.map((l) => l.id))
-      return all().filter((t) => ids.has(t.listId) && ((!t.done && t.due < today) || (t.due >= today && t.due < end)))
+      return { tasks: all().filter((t) => ids.has(t.listId) && ((!t.done && t.due < today) || (t.due >= today && t.due < end))), failed: [] }
     },
     async setDone(task, done) {
       ticks.set(task.id, done)

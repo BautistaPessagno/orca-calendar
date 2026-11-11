@@ -50,6 +50,8 @@ test('normalizes a Google task: the due date stays a date, never shifted by a ti
   // No due date: Google Calendar doesn't show it, and neither does the agenda.
   assert.equal(normalizeTask({ id: 't3', title: 'Someday', status: 'needsAction' }, list), null)
   assert.equal(normalizeTask({ id: 't4', title: 'Gone', deleted: true, due: '2026-11-11T00:00:00.000Z' }, list), null)
+  // A due date that isn't a real day would break the panel's date formatting: left out.
+  assert.equal(normalizeTask({ id: 't5', title: 'Odd', due: '2026-13-45T00:00:00.000Z' }, list), null)
 })
 
 test('reads the task lists, page by page', async () => {
@@ -70,7 +72,8 @@ test('reads overdue tasks and the tasks due in the days shown, with the ones tic
         ? reply(200, { items: [{ id: 'today', title: 'Today', status: 'completed', due: '2026-11-11T00:00:00.000Z' }] })
         : reply(200, { items: [{ id: 'late', title: 'Late', status: 'needsAction', due: '2026-11-09T00:00:00.000Z' }] })
   })
-  const got = await tasks.tasks({ today: '2026-11-11', end: '2026-11-14', lists: [list] })
+  const { tasks: got, failed } = await tasks.tasks({ today: '2026-11-11', end: '2026-11-14', lists: [list] })
+  assert.deepEqual(failed, [])
   assert.deepEqual(got.map((t) => [t.id, t.due, t.done]), [['late', '2026-11-09', false], ['today', '2026-11-11', true]])
   const [overdue, range] = google.requests.map((r) => r.query)
   assert.equal(overdue.dueMax, '2026-11-11T00:00:00.000Z')
@@ -89,7 +92,9 @@ test('one list failing leaves it out; every list failing throws', async () => {
     [`GET ${TASKS}/lists/list-1/tasks`]: reply(500, { error: { message: 'Backend Error' } }),
     [`GET ${TASKS}/lists/list-2/tasks`]: reply(200, { items: [{ id: 'milk', title: 'Milk', status: 'needsAction', due: '2026-11-11T00:00:00.000Z' }] })
   })
-  assert.deepEqual((await tasks.tasks({ today: '2026-11-11', end: '2026-11-12', lists })).map((t) => t.id), ['milk'])
+  const read = await tasks.tasks({ today: '2026-11-11', end: '2026-11-12', lists })
+  assert.deepEqual(read.tasks.map((t) => t.id), ['milk'])
+  assert.deepEqual(read.failed, ['My Tasks'])
   assert.equal(logs.length, 1)
   const broken = setup({ [`GET ${TASKS}/lists/list-1/tasks`]: reply(500, { error: { message: 'Backend Error' } }) })
   await assert.rejects(broken.tasks.tasks({ today: '2026-11-11', end: '2026-11-12', lists: [list] }), /Backend Error/)
@@ -119,4 +124,13 @@ test('ticks a task done and undoes it', async () => {
   assert.equal(undone.done, false)
   assert.deepEqual(google.requests[1].body, { status: 'needsAction', completed: null })
   assert.equal(undone.listTitle, 'My Tasks')
+})
+
+test('a Tasks API 401 never ends the Google login the calendar uses', async () => {
+  let expired = 0
+  const google = fakeGoogle({ [`GET ${TASKS}/users/@me/lists`]: reply(401, { error: { code: 401, message: 'Invalid Credentials' } }) })
+  const client = createClient({ auth: { getAccessToken: async () => 'at', expire: async () => expired++ }, fetchImpl: google.fetchImpl, base: TASKS_BASE, api: 'Google Tasks', endsLogin: false })
+  await assert.rejects(createGoogleTasks({ client }).lists(), (e) => e.kind === 'error' && e.reason === 'unauthorized')
+  assert.equal(google.requests.length, 2, 'refreshed the token once')
+  assert.equal(expired, 0)
 })

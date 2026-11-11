@@ -37,7 +37,13 @@ flowchart TD
 ```
 
 A failure on the tasks side never changes `status`, `message` or `events`. Only the event read
-decides those, as before.
+decides those, as before. Three more guards keep it that way:
+
+- The Tasks client never ends the Google login: a second 401 from the Tasks API becomes a tasks
+  error (`createClient({ endsLogin: false })`), where the Calendar client would sign out.
+- The snapshot waits for tasks at most 5 s after the events are in; past that the last tasks stay,
+  with `tasksStatus 'error'` ("Google Tasks is slow to answer").
+- When the event read fails without a setup state (offline, rate limited), the last tasks stay.
 
 ### Login: optional scopes
 
@@ -68,12 +74,16 @@ sequenceDiagram
 `backends/google/tasks.mjs`, over the same client with base `https://tasks.googleapis.com/tasks/v1`:
 
 1. `GET /users/@me/lists?maxResults=100`: the task lists (up to 5 pages).
-2. For each shown list, two reads (up to 5 pages of 100 each):
-   - overdue: `dueMax=<today>T00:00:00Z`, `showCompleted=false`;
+2. For each shown list, two reads (up to 5 pages of 100 each, so at most 500 tasks per read):
+   - overdue: `dueMax=<today>T00:00:00Z`, `showCompleted=false`, `showAssigned=true`;
    - in range: `dueMin=<today>T00:00:00Z`, `dueMax=<today + days>T00:00:00Z`,
      `showCompleted=true`, `showHidden=true` (tasks ticked in Google's own apps are hidden
      otherwise), `showAssigned=true`.
-3. Tasks with no `due` are left out: Google Calendar doesn't show them either.
+3. Tasks with no `due` are left out: Google Calendar doesn't show them either. So is a `due` that
+   isn't a real day.
+4. A task returned by both reads (Google doesn't say whether `dueMax` is inclusive) counts once.
+5. A list that fails is left out and named: `tasksStatus 'error'`, "Couldn't read the task list
+   “Errands”", while the other lists show. Every list failing is a tasks error like any other.
 
 `due` carries only a date: Google stores it as midnight UTC and the API can't read the time a
 task was given in Calendar. So the date is `due.slice(0, 10)`, never converted between time zones,
@@ -130,7 +140,7 @@ A **Tasks** section under the calendars:
 | tasksStatus | Shows |
 | --- | --- |
 | `ready` | a checkbox per task list (stored as `<backend>:tasks:<list id>` in `calendars`) |
-| `no-scope` | "Show your Google Tasks here." and **Connect Google again** |
+| `no-scope` | "See your Google Tasks next to your meetings." and **Show Google Tasks: connect Google again** |
 | `api-disabled` | "Turn on the Google Tasks API in your Cloud project" with a link to it |
 | `error` | the message, and the last tasks stay in the agenda |
 | `off` | nothing (Mac calendars, before connecting) |
@@ -151,7 +161,7 @@ agenda.get     → Snapshot + { tasks: Task[], taskLists: { id, title, shown }[]
                  capabilities.completeTasks: login has 'tasks' and the setting is on
 tasks.lists.set  { id, shown }                → Snapshot
 task.complete    { id, listId, done }         → Snapshot
-auth.info      → + tasks: 'write' | 'read' | 'none'
+auth.info      → + tasks: 'write' | 'read' | 'none', completeTasks (the setting, for the setup help)
 ```
 
 ## Stages
