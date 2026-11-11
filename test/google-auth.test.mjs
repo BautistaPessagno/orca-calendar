@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { test } from 'node:test'
-import { SECRET_KEY, TOKENS_KEY, createAuth, scopesFor } from '../backends/google/auth.mjs'
+import { ENDED_KEY, SECRET_KEY, TOKENS_KEY, createAuth, scopesFor } from '../backends/google/auth.mjs'
 import { TOKEN, fakeGoogle, fakeSecrets, fakeSettings, reply } from './fakes.mjs'
 
 const CLIENT_ID = '1234567890-abcdefghijklmnop.apps.googleusercontent.com'
@@ -86,11 +86,44 @@ test('refuses a client ID that is not a Google OAuth client ID', async () => {
   await assert.rejects(auth.start({ clientId: CLIENT_ID, clientSecret: '' }), /client secret/)
 })
 
-test('needs setup without a client ID; unauthenticated without tokens', async () => {
+test('never connected is "needs setup", with or without a client ID', async () => {
   const auth = createAuth({ settings: fakeSettings(), secrets: fakeSecrets(), listen: fakeListen().listen })
   await assert.rejects(auth.getAccessToken(), (e) => e.kind === 'needs-setup')
+  // A client ID saved, but the login never finished: still a first-time setup, not an ended login.
   const auth2 = createAuth({ settings: fakeSettings({ clientId: CLIENT_ID }), secrets: fakeSecrets({ [SECRET_KEY]: SECRET }), listen: fakeListen().listen })
-  await assert.rejects(auth2.getAccessToken(), (e) => e.kind === 'unauthenticated')
+  await assert.rejects(auth2.getAccessToken(), (e) => e.kind === 'needs-setup' && !/ended/.test(e.message))
+})
+
+test('a login Google ended stays "ended" across restarts, until the next login', async () => {
+  const tokens = { access_token: 'old', refresh_token: 'rt', expires_at: 0, client_id: CLIENT_ID, scopes: '' }
+  const secrets = fakeSecrets({ [SECRET_KEY]: SECRET, [TOKENS_KEY]: JSON.stringify(tokens) })
+  const settings = fakeSettings({ clientId: CLIENT_ID })
+  const google = fakeGoogle({ [`POST ${TOKEN}`]: [reply(400, { error: 'invalid_grant' }), reply(200, { access_token: 'new', refresh_token: 'rt2', expires_in: 3599 })] })
+  const { listen, servers } = fakeListen()
+  await assert.rejects(createAuth({ settings, secrets, fetchImpl: google.fetchImpl, listen }).getAccessToken(), (e) => e.kind === 'unauthenticated')
+  const restarted = createAuth({ settings, secrets, fetchImpl: google.fetchImpl, listen })
+  await assert.rejects(restarted.getAccessToken(), (e) => e.kind === 'unauthenticated' && /ended/.test(e.message))
+  const { url } = await restarted.start()
+  await servers[0].handle(new URLSearchParams({ state: new URL(url).searchParams.get('state'), code: 'c' }))
+  assert.equal(await restarted.getAccessToken(), 'new')
+  assert.equal(secrets.values[ENDED_KEY], undefined)
+})
+
+test('an API refusal of a fresh token (expire) also counts as an ended login', async () => {
+  const tokens = { access_token: 'at', refresh_token: 'rt', expires_at: Date.now() + 3600_000, client_id: CLIENT_ID, scopes: '' }
+  const secrets = fakeSecrets({ [SECRET_KEY]: SECRET, [TOKENS_KEY]: JSON.stringify(tokens) })
+  const auth = createAuth({ settings: fakeSettings({ clientId: CLIENT_ID }), secrets, listen: fakeListen().listen })
+  await auth.expire()
+  await assert.rejects(auth.getAccessToken(), (e) => e.kind === 'unauthenticated')
+})
+
+test('disconnecting is the person’s choice: back to "needs setup", not "ended"', async () => {
+  const tokens = { access_token: 'at', refresh_token: 'rt', expires_at: Date.now() + 3600_000, client_id: CLIENT_ID, scopes: '' }
+  const secrets = fakeSecrets({ [SECRET_KEY]: SECRET, [TOKENS_KEY]: JSON.stringify(tokens), [ENDED_KEY]: '2026-11-01T00:00:00.000Z' })
+  const google = fakeGoogle({ 'POST oauth2.googleapis.com/revoke': reply(200, {}) })
+  const auth = createAuth({ settings: fakeSettings({ clientId: CLIENT_ID }), secrets, fetchImpl: google.fetchImpl, listen: fakeListen().listen })
+  await auth.disconnect()
+  await assert.rejects(auth.getAccessToken(), (e) => e.kind === 'needs-setup')
 })
 
 test('a revoked login (invalid_grant) is forgotten', async () => {

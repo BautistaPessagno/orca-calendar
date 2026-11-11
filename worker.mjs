@@ -20,12 +20,15 @@ import { createGoogleBackend } from './backends/google/backend.mjs'
 import { createClient } from './backends/google/client.mjs'
 import { createSampleBackend } from './backends/sample.mjs'
 import { createReminders } from './src/reminders.mjs'
-import { createService } from './src/service.mjs'
+import { BLOCKING, createService } from './src/service.mjs'
 import { createTicker } from './src/status-bar.mjs'
 
 // How often the agenda is re-read while the plugin is enabled.
 export const REFRESH_MS = { google: 5 * 60_000, eventkit: 2 * 60_000, sample: 5 * 60_000 }
 const RETRY_MS = 60_000
+// Setup states (connect Google, allow Mac access) change only when the person acts, and each
+// action re-reads at once; this slow re-read only catches a change made outside Orca.
+const BLOCKED_RETRY_MS = 15 * 60_000
 const RESPONSES = ['accepted', 'tentative', 'declined']
 const PREFS = { days: (v) => Math.max(1, Math.min(14, Math.round(Number(v)) || 3)), showDeclined: (v) => v === true }
 
@@ -74,7 +77,7 @@ export default function activate(orca, deps = {}) {
   let refreshTimer = null
   const scheduleRefresh = (snapshot) => {
     clearTimer(refreshTimer)
-    const ms = snapshot.status === 'ready' ? REFRESH_MS[snapshot.backend] : snapshot.retryAfterMs ?? RETRY_MS
+    const ms = snapshot.status === 'ready' ? REFRESH_MS[snapshot.backend] : BLOCKING.has(snapshot.status) ? BLOCKED_RETRY_MS : snapshot.retryAfterMs ?? RETRY_MS
     refreshTimer = setTimer(() => void service.load(), ms)
     refreshTimer?.unref?.()
   }

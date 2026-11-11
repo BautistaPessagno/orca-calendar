@@ -158,3 +158,25 @@ test('respond: refused when the backend or the setting does not allow it', async
   assert.equal(snap.capabilities.rsvp, false)
   await assert.rejects(off.respond('inv', 'a', 'accepted'), /Answer invitations/)
 })
+
+test('a failure is logged once, not again on every read that fails the same way', async () => {
+  const logs = []
+  const backend = fakeBackend('google', { fail: new CalendarError('needs-setup', 'Connect your Google account.') })
+  const service = createService({
+    backends: { google: backend, eventkit: fakeBackend('eventkit'), sample: fakeBackend('sample') },
+    settings: fakeSettings({ backend: 'google' }),
+    storage: fakeStorage(),
+    platform: 'darwin',
+    timeZone: 'UTC',
+    log: (line) => logs.push(line)
+  })
+  await service.load()
+  await service.load()
+  await service.load()
+  assert.equal(logs.length, 1)
+  backend.calendars = async () => {
+    throw new CalendarError('offline', 'Can’t reach it.')
+  }
+  await service.load()
+  assert.equal(logs.length, 2)
+})

@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import activate, { deactivate } from '../worker.mjs'
 import { createSampleBackend } from '../backends/sample.mjs'
 import { fakeSecrets, fakeSettings, fakeStorage } from './fakes.mjs'
+import { CalendarError } from '../src/errors.mjs'
 
 const manifest = JSON.parse(readFileSync(new URL('../orca-plugin.json', import.meta.url), 'utf8'))
 
@@ -95,4 +96,16 @@ test('the rsvp setting decides the scope the Google login asks for', async () =>
   assert.equal(started[0].rsvp, false)
   assert.equal((await handlers.get('auth.info')()).rsvp, false)
   deactivate()
+})
+
+test('a setup state is not re-read every minute: nothing changes until the person acts', async () => {
+  const { orca } = fakeOrca({ backend: 'google' })
+  const timers = []
+  const google = { id: 'google', capabilities: {}, calendars: async () => { throw new CalendarError('needs-setup', 'Connect your Google account.') }, events: async () => [] }
+  activate(orca, { setTimer: (fn, ms) => (timers.push(ms), timers.length), clearTimer: () => {}, backends: { google, sample: createSampleBackend(), eventkit: null } })
+  await settle()
+  deactivate()
+  const refresh = timers.filter((ms) => ms !== undefined && ms >= 60_000)
+  assert.ok(refresh.length > 0)
+  assert.ok(refresh.every((ms) => ms >= 15 * 60_000), `refresh after ${refresh}`)
 })
