@@ -4,7 +4,7 @@
   "execution": "trusted-worker",
   "id": "calendar",
   "name": "Calendar",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Your Google Calendar in Orca's sidebar: today's agenda and the next days, the next meeting counting down in the status bar, a join button for Meet, Zoom, Teams and Slack huddles, and a reminder before each meeting. Works with your Mac's calendars with no setup. Not affiliated with Google or Apple.",
   "author": {
     "name": "Bautista Pessagno",
@@ -18,10 +18,18 @@
   "pluginApi": 1,
   "main": "worker.mjs",
   "capabilities": [
-    { "kind": "notifications:show" },
-    { "kind": "secrets:own" },
-    { "kind": "settings:own" },
-    { "kind": "storage:own" }
+    {
+      "kind": "notifications:show"
+    },
+    {
+      "kind": "secrets:own"
+    },
+    {
+      "kind": "settings:own"
+    },
+    {
+      "kind": "storage:own"
+    }
   ],
   "contributes": {
     "panels": [
@@ -47,8 +55,18 @@
         "description": "Where Calendar reads your meetings. Auto uses Google Calendar once you connect it in the panel, and your Mac's calendars until then.",
         "type": "string",
         "default": "auto",
-        "enum": ["auto", "google", "eventkit", "sample"],
-        "enumLabels": ["Auto", "Google Calendar", "Mac calendars (macOS)", "Sample week (try it out)"]
+        "enum": [
+          "auto",
+          "google",
+          "eventkit",
+          "sample"
+        ],
+        "enumLabels": [
+          "Auto",
+          "Google Calendar",
+          "Mac calendars (macOS)",
+          "Sample week (try it out)"
+        ]
       },
       {
         "key": "days",
@@ -81,6 +99,13 @@
         "description": "Declined events stay in the agenda, struck through. They never count for the status bar or reminders.",
         "type": "boolean",
         "default": false
+      },
+      {
+        "key": "rsvp",
+        "title": "Answer invitations",
+        "description": "Show Yes, Maybe and No on Google Calendar invitations in the panel. Google then asks you to allow Calendar to change your events; turning this off keeps the login read-only. Takes effect when you connect Google again.",
+        "type": "boolean",
+        "default": true
       },
       {
         "key": "clientId",

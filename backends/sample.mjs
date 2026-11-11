@@ -17,10 +17,12 @@ const people = (names, responses = []) => names.map((name, i) => ({ name, email:
 const MIN = 60_000
 
 export function createSampleBackend({ now = Date.now, timeZone } = {}) {
+  // Answers given in the panel, kept in memory only: the sample has no account behind it.
+  const answers = new Map()
   const colorOf = (id) => CALENDARS.find((c) => c.id === id).color
 
   const make = (id, calendarId, title, start, end, extra = {}) => {
-    const response = extra.response ?? 'accepted'
+    const response = answers.get(id) ?? extra.response ?? 'accepted'
     const attendees = extra.guests ? [...people(extra.guests, extra.guestResponses), { ...ME, response }] : []
     const conference = extra.link ? findConference({ location: extra.link }) : null
     return {
@@ -86,13 +88,17 @@ export function createSampleBackend({ now = Date.now, timeZone } = {}) {
 
   return {
     id: 'sample',
-    capabilities: { rsvp: false, conference: true },
+    capabilities: { rsvp: true, conference: true },
     async calendars() {
       return CALENDARS.map((c) => ({ ...c }))
     },
     async events({ from, to, calendars }) {
       const ids = new Set(calendars.map((c) => c.id))
       return week().filter((e) => ids.has(e.calendarId)).filter((e) => (e.allDay ? true : e.end > from && e.start < to))
+    },
+    async respond(event, response) {
+      answers.set(event.id, response)
+      return { ...event, self: { ...event.self, response } }
     }
   }
 }
