@@ -1,6 +1,6 @@
 {
   "name": "orca-calendar",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Orca plugin that shows your Google Calendar or Mac calendars in Orca's sidebar and status bar.",

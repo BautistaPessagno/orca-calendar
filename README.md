@@ -34,7 +34,7 @@ Needs Orca 1.4.248 or newer.
 1. Open [the plugin's page](https://onorca.dev/plugins/bautistapessagno.calendar) and click
    **Open in Orca**, or in Orca: Settings → Plugins → search **Calendar** in the community
    catalog. By hand: **Install plugin** → Git URL →
-   `https://github.com/BautistaPessagno/orca-calendar#v0.2.1`.
+   `https://github.com/BautistaPessagno/orca-calendar#v0.3.0`.
 2. Full-access plugins need Orca's separate setting that allows them (off by default).
 3. Review what it asks for and click **Enable**. It asks for notifications (meeting reminders),
    its own settings, its own storage and its own encrypted secrets (the Google login).
