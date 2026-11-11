@@ -14,11 +14,14 @@ Your meetings in Orca's sidebar, so the next one is never a browser tab away.
 
 Not affiliated with Google or Apple.
 
-| Agenda (dark) | Event details (light) |
-| --- | --- |
-| ![The agenda in Orca's dark theme: a "Now" card with a Join button, today's meetings with a red now line and free time between them](images/agenda-dark.png) | ![An event opened in Orca's light theme: time, a Join Zoom button, the room, guests with their answers, and notes](images/details-light.png) |
+![Calendar in Orca's sidebar: the agenda with a call starting in 4 minutes and a Join button, and the same countdown in Orca's status bar](images/cover.png)
 
-The screenshots show the made-up sample week.
+| | |
+| --- | --- |
+| ![The agenda in dark theme, and in light theme with an event open: Join, room, guests and their answers](images/agenda.png) | ![The status bar counting down in grey, then amber, then "now"; a reminder notification; the panel with Join](images/reminders.png) |
+| ![An invitation with Going? Yes, No, Maybe next to the calendar picker](images/invitations.png) | ![The Connect Google Calendar screen next to the sample week and its way to Google](images/setup.png) |
+
+The images show the made-up sample week. `node scripts/render-listing-images.mjs` renders them again from the real panel.
 
 ## Install
 
@@ -161,6 +164,7 @@ orca plugin validate .
 orca plugin check .
 orca plugin dev watch . --check --shot .orca/shots
 node scripts/render-shots.mjs        # every panel state, light and dark, from the sample week
+node scripts/render-listing-images.mjs  # the plugin page's cover, screenshots and icon, into images/
 ```
 
 - `worker.mjs`: the worker entry: panel requests, the status bar, reminders.
