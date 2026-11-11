@@ -137,3 +137,39 @@ test('later days: free time between meetings only', () => {
   const order = buildAgenda(events, { now, days: 2, timeZone: TZ }).days[1].items.map((i) => i.type)
   assert.deepEqual(order, ['event', 'gap', 'event'])
 })
+
+const tk = (id, due, extra = {}) => ({ id, listId: 'l1', listTitle: 'My Tasks', title: id, notes: null, due, done: false, completedAt: null, parentId: null, assigned: false, link: null, ...extra })
+
+test('tasks sit on the day they are due; overdue unfinished ones lead today', () => {
+  const now = Date.parse('2026-11-11T09:00:00Z')
+  const tasks = [
+    tk('b-today', '2026-11-11'),
+    tk('a-today-done', '2026-11-11', { done: true }),
+    tk('a-today', '2026-11-11'),
+    tk('late-2', '2026-11-10'),
+    tk('late-1', '2026-11-03'),
+    tk('late-done', '2026-11-09', { done: true }),
+    tk('tomorrow', '2026-11-12'),
+    tk('beyond', '2026-11-20')
+  ]
+  const agenda = buildAgenda([], { now, days: 3, timeZone: 'UTC', tasks })
+  assert.deepEqual(
+    agenda.days[0].tasks.map((t) => [t.task.id, t.overdue]),
+    [['late-1', true], ['late-2', true], ['a-today', false], ['b-today', false], ['a-today-done', false]]
+  )
+  assert.deepEqual(agenda.days[1].tasks.map((t) => t.task.id), ['tomorrow'])
+  assert.deepEqual(agenda.days[2].tasks, [])
+})
+
+test('a task due date is a calendar date in every time zone', () => {
+  // 23:30 on the 11th in Los Angeles is already the 12th in UTC; the task due the 11th is today.
+  const now = Date.parse('2026-11-12T07:30:00Z')
+  const agenda = buildAgenda([], { now, days: 1, timeZone: 'America/Los_Angeles', tasks: [tk('report', '2026-11-11')] })
+  assert.equal(agenda.days[0].date, '2026-11-11')
+  assert.deepEqual(agenda.days[0].tasks.map((t) => [t.task.id, t.overdue]), [['report', false]])
+})
+
+test('no tasks given: every day has an empty task list', () => {
+  const agenda = buildAgenda([], { now: Date.parse('2026-11-11T09:00:00Z'), days: 2, timeZone: 'UTC' })
+  assert.deepEqual(agenda.days.map((d) => d.tasks), [[], []])
+})

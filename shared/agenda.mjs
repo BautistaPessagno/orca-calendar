@@ -67,9 +67,20 @@ export const counts = (event, options) => !event.allDay && event.busy !== false 
 
 const byTime = (a, b) => a.start - b.start || a.end - b.end || String(a.title).localeCompare(String(b.title))
 
-// { days: [{ date, today, start, end, allDay: Event[], items: Item[] }], current: id[] }
+const byTitle = (a, b) => String(a.title).localeCompare(String(b.title))
+
+// The tasks for one day: today leads with unfinished tasks from earlier days (oldest first), then
+// each day lists its own, unfinished before done. `due` is a 'yyyy-mm-dd' date, compared as is.
+function tasksOn(tasks, date, isToday) {
+  const overdue = isToday ? tasks.filter((t) => !t.done && t.due < date).sort((a, b) => a.due.localeCompare(b.due) || byTitle(a, b)) : []
+  const own = tasks.filter((t) => t.due === date).sort((a, b) => Number(a.done) - Number(b.done) || byTitle(a, b))
+  return [...overdue.map((task) => ({ task, overdue: true })), ...own.map((task) => ({ task, overdue: false }))]
+}
+
+// { days: [{ date, today, start, end, allDay: Event[], tasks: TaskItem[], items: Item[] }], current: id[] }
 // Item: { type: 'event', event, continued?, continues? } | { type: 'gap', start, end } | { type: 'now', at }
-export function buildAgenda(events, { now, days = 3, timeZone, hidden = [], showDeclined = false, minGapMs = MIN_GAP_MS } = {}) {
+// TaskItem: { task, overdue }
+export function buildAgenda(events, { now, days = 3, timeZone, hidden = [], showDeclined = false, minGapMs = MIN_GAP_MS, tasks = [] } = {}) {
   const shown = events.filter((event) => visible(event, { hidden, showDeclined }))
   const timed = shown.filter((event) => !event.allDay).sort(byTime)
   const allDay = shown.filter((event) => event.allDay).sort((a, b) => a.start.localeCompare(b.start) || String(a.title).localeCompare(String(b.title)))
@@ -88,6 +99,7 @@ export function buildAgenda(events, { now, days = 3, timeZone, hidden = [], show
       start,
       end,
       allDay: allDay.filter((event) => event.start <= date && date < event.end),
+      tasks: tasksOn(tasks, date, i === 0),
       items: []
     }
     for (const event of timed) {

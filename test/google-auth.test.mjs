@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { test } from 'node:test'
-import { ENDED_KEY, SECRET_KEY, TOKENS_KEY, createAuth, scopesFor } from '../backends/google/auth.mjs'
+import { ENDED_KEY, SECRET_KEY, TOKENS_KEY, createAuth, optionalScopesFor, scopesFor, tasksAccess } from '../backends/google/auth.mjs'
 import { TOKEN, fakeGoogle, fakeSecrets, fakeSettings, reply } from './fakes.mjs'
 
 const CLIENT_ID = '1234567890-abcdefghijklmnop.apps.googleusercontent.com'
@@ -29,6 +29,37 @@ test('asks for read-only scopes unless answering invitations is on', () => {
     'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
     'https://www.googleapis.com/auth/calendar.events'
   ])
+})
+
+test('Tasks is an optional scope: full access to tick tasks off, read-only when that is off', () => {
+  assert.deepEqual(optionalScopesFor({ completeTasks: true }), ['https://www.googleapis.com/auth/tasks'])
+  assert.deepEqual(optionalScopesFor({ completeTasks: false }), ['https://www.googleapis.com/auth/tasks.readonly'])
+  assert.equal(tasksAccess('x https://www.googleapis.com/auth/tasks'), 'write')
+  assert.equal(tasksAccess('https://www.googleapis.com/auth/tasks.readonly'), 'read')
+  assert.equal(tasksAccess('https://www.googleapis.com/auth/calendar.events'), 'none')
+  assert.equal(tasksAccess(undefined), 'none')
+})
+
+test('every Connect asks for the Tasks scope next to the Calendar ones', async () => {
+  const auth = createAuth({ settings: fakeSettings({}), secrets: fakeSecrets(), fetchImpl: fakeGoogle().fetchImpl, listen: fakeListen().listen })
+  const write = new URL((await auth.start({ clientId: CLIENT_ID, clientSecret: SECRET, rsvp: true, completeTasks: true })).url).searchParams.get('scope').split(' ')
+  assert.deepEqual(write, [...scopesFor({ rsvp: true }), 'https://www.googleapis.com/auth/tasks'])
+  const read = new URL((await auth.start({ rsvp: true, completeTasks: false })).url).searchParams.get('scope').split(' ')
+  assert.deepEqual(read, [...scopesFor({ rsvp: true }), 'https://www.googleapis.com/auth/tasks.readonly'])
+  auth.close()
+})
+
+test('a login without Tasks misses nothing; connection says what Tasks access it has', async () => {
+  const connect = async (scopes) => {
+    const tokens = { access_token: 'at', refresh_token: 'rt', expires_at: Date.now() + 3600_000, client_id: CLIENT_ID, scopes }
+    const auth = createAuth({ settings: fakeSettings({ clientId: CLIENT_ID }), secrets: fakeSecrets({ [SECRET_KEY]: SECRET, [TOKENS_KEY]: JSON.stringify(tokens) }), listen: fakeListen().listen })
+    return auth.connection({ rsvp: true })
+  }
+  const calendarOnly = await connect(scopesFor({ rsvp: true }).join(' '))
+  assert.deepEqual(calendarOnly.missingScopes, [])
+  assert.equal(calendarOnly.tasks, 'none')
+  assert.equal((await connect([...scopesFor({ rsvp: true }), 'https://www.googleapis.com/auth/tasks'].join(' '))).tasks, 'write')
+  assert.equal((await connect([...scopesFor({ rsvp: true }), 'https://www.googleapis.com/auth/tasks.readonly'].join(' '))).tasks, 'read')
 })
 
 test('a full login: PKCE authorize URL, loopback redirect, code exchange with the secret', async () => {

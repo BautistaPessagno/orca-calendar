@@ -11,7 +11,7 @@ import { mkdirSync, readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { dirname, extname, join, normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createSampleBackend } from '../backends/sample.mjs'
+import { createSampleBackend, createSampleTasks } from '../backends/sample.mjs'
 import { MESSAGES } from '../src/errors.mjs'
 import { createService } from '../src/service.mjs'
 
@@ -32,7 +32,7 @@ const store = () => {
 }
 
 async function sampleSnapshot() {
-  const service = createService({ backends: { sample: createSampleBackend() }, settings: { ...store(), get: async (k) => ({ backend: 'sample', days: 3 })[k] }, storage: store() })
+  const service = createService({ backends: { sample: createSampleBackend() }, taskSources: { sample: createSampleTasks() }, taskAccess: async () => 'write', settings: { ...store(), get: async (k) => ({ backend: 'sample', days: 3 })[k] }, storage: store() })
   return service.load()
 }
 
@@ -49,7 +49,10 @@ const STATES = {
   connect: [blocking('needs-setup', 'google', MESSAGES.needsSetup), auth, ''],
   'connect-ended': [blocking('unauthenticated', 'google', MESSAGES.unauthenticated), { ...auth, clientId: '1234567890-abcdefghijklmnop.apps.googleusercontent.com', hasSecret: true }, ''],
   'mac-access': [blocking('not-asked', 'eventkit', MESSAGES.notAsked), auth, ''],
-  offline: [{ ...base, status: 'offline', message: MESSAGES.offline, stale: true }, auth, '']
+  offline: [{ ...base, status: 'offline', message: MESSAGES.offline, stale: true }, auth, ''],
+  task: [base, auth, `document.querySelector('[data-open="task:my-tasks/q4-report"]').click()`],
+  'tasks-no-scope': [{ ...base, backend: 'google', tasks: [], taskLists: [], tasksStatus: 'no-scope' }, { ...auth, connected: true, tasks: 'none' }, `document.getElementById('settings').click()`],
+  'tasks-api-off': [{ ...base, backend: 'google', tasks: [], taskLists: [], tasksStatus: 'api-disabled', tasksMessage: 'Enable the Google Tasks API in your Google Cloud project (APIs & Services → Library → Google Tasks API → Enable), wait a minute, then refresh.' }, { ...auth, connected: true, tasks: 'write' }, `document.getElementById('settings').click()`]
 }
 
 const harness = (theme, snapshot, info, script) => `<!doctype html><html class="${theme}"><head><meta charset="utf-8"><style>html{width:360px;max-width:360px}:root{${Object.entries(THEMES[theme])

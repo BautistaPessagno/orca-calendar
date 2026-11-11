@@ -1,16 +1,18 @@
-// Calendar API v3 over fetch, with the login's access token. A 401 refreshes the token once; a
-// second 401 ends the login. Errors become CalendarErrors with a sentence the panel shows.
+// A Google API over fetch, with the login's access token: Calendar API v3 by default, Tasks API v1
+// with `base` and `api`. A 401 refreshes the token once; a second 401 ends the login. Errors become
+// CalendarErrors with a sentence the panel shows, and a `reason` ('api-disabled', 'scope') for
+// callers that treat those apart.
 import { CalendarError, MESSAGES } from '../../src/errors.mjs'
 
-const BASE = 'https://www.googleapis.com/calendar/v3'
+export const CALENDAR_BASE = 'https://www.googleapis.com/calendar/v3'
 const TIMEOUT_MS = 15_000
 
 const reasonOf = (body) => body?.error?.errors?.[0]?.reason ?? body?.error?.status ?? ''
 
-export function createClient({ auth, fetchImpl = globalThis.fetch }) {
+export function createClient({ auth, fetchImpl = globalThis.fetch, base = CALENDAR_BASE, api = 'Google Calendar' }) {
   async function send(method, path, { query, body } = {}, retried = false) {
     const token = await auth.getAccessToken({ force: retried })
-    const url = new URL(BASE + path)
+    const url = new URL(base + path)
     for (const [key, value] of Object.entries(query ?? {})) if (value !== undefined && value !== null) url.searchParams.set(key, String(value))
     let response
     try {
@@ -35,13 +37,13 @@ export function createClient({ auth, fetchImpl = globalThis.fetch }) {
       throw new CalendarError('rate-limited', MESSAGES.rateLimited, { retryAfterMs: 60_000 })
     }
     if (reason === 'accessNotConfigured' || /has not been used in project|is disabled/.test(data?.error?.message ?? '')) {
-      throw new CalendarError('error', 'Enable the Google Calendar API in your Google Cloud project (APIs & Services → Library → Google Calendar API → Enable), wait a minute, then refresh.')
+      throw new CalendarError('error', `Enable the ${api} API in your Google Cloud project (APIs & Services → Library → ${api} API → Enable), wait a minute, then refresh.`, { reason: 'api-disabled' })
     }
     if (response.status === 403 && /insufficient|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(reason + (data?.error?.message ?? ''))) {
-      throw new CalendarError('unauthenticated', 'Calendar needs a permission your Google login didn’t give. Connect again and allow it.')
+      throw new CalendarError('unauthenticated', 'Calendar needs a permission your Google login didn’t give. Connect again and allow it.', { reason: 'scope' })
     }
     const detail = String(data?.error?.message ?? `HTTP ${response.status}`).slice(0, 200)
-    throw new CalendarError('error', `Google Calendar answered: ${detail}`, { status: response.status })
+    throw new CalendarError('error', `${api} answered: ${detail}`, { status: response.status })
   }
 
   return {

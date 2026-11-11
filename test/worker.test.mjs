@@ -54,7 +54,7 @@ test('answers the panel with the sample week and updates the status bar', async 
   assert.equal(posts[0].event, 'agenda.changed')
   assert.deepEqual(
     [...handlers.keys()].sort(),
-    ['agenda.get', 'auth.disconnect', 'auth.info', 'auth.start', 'auth.status', 'backend.select', 'calendars.set', 'event.respond', 'eventkit.request', 'prefs.set']
+    ['agenda.get', 'auth.disconnect', 'auth.info', 'auth.start', 'auth.status', 'backend.select', 'calendars.set', 'event.respond', 'eventkit.request', 'prefs.set', 'task.complete', 'tasks.lists.set']
   )
 })
 
@@ -108,4 +108,45 @@ test('a setup state is not re-read every minute: nothing changes until the perso
   const refresh = timers.filter((ms) => ms !== undefined && ms >= 60_000)
   assert.ok(refresh.length > 0)
   assert.ok(refresh.every((ms) => ms >= 15 * 60_000), `refresh after ${refresh}`)
+})
+
+test('the sample week has tasks, and the panel can tick one off and hide a list', async () => {
+  const { orca, handlers } = fakeOrca()
+  activate(orca, { backends: { sample: createSampleBackend(), google: null, eventkit: null } })
+  let snap = await handlers.get('agenda.get')()
+  assert.equal(snap.tasksStatus, 'ready')
+  assert.equal(snap.capabilities.completeTasks, true)
+  assert.ok(snap.tasks.some((t) => !t.done), 'an unfinished task to tick')
+  assert.ok(snap.taskLists.length >= 2)
+  const open = snap.tasks.find((t) => t.id === 'review-pr')
+  snap = await handlers.get('task.complete')({ id: open.id, listId: open.listId, done: true })
+  assert.equal(snap.tasks.find((t) => t.id === open.id).done, true)
+  // A done task from an earlier day belongs to that day, which the agenda doesn't show.
+  snap = await handlers.get('task.complete')({ id: 'q4-report', listId: 'my-tasks', done: true })
+  assert.equal(snap.tasks.find((t) => t.id === 'q4-report'), undefined)
+  await assert.rejects(handlers.get('task.complete')({ id: open.id, listId: open.listId, done: 'yes' }), /done/)
+  const hidden = snap.taskLists[1].id
+  snap = await handlers.get('tasks.lists.set')({ id: hidden, shown: false })
+  assert.equal(snap.taskLists.find((l) => l.id === hidden).shown, false)
+  assert.ok(!snap.tasks.some((t) => t.listId === hidden))
+  deactivate()
+})
+
+test('the completeTasks setting decides the Tasks scope the login asks for', async () => {
+  const { orca, handlers } = fakeOrca({ completeTasks: false })
+  const started = []
+  const auth = { connection: async () => ({ connected: false, tasks: 'none' }), start: async (input) => (started.push(input), { url: 'https://accounts.google.com/x' }), status: async () => ({ status: 'idle' }), close() {} }
+  activate(orca, { auth, backends: { sample: createSampleBackend(), google: null, eventkit: null } })
+  await handlers.get('auth.start')({ clientId: 'id', clientSecret: 's' })
+  assert.equal(started[0].completeTasks, false)
+  const info = await handlers.get('auth.info')()
+  assert.equal(info.completeTasks, false)
+  assert.equal(info.tasks, 'none')
+  deactivate()
+})
+
+test('manifest: the completeTasks setting, on by default', () => {
+  const setting = manifest.contributes.settings.find((s) => s.key === 'completeTasks')
+  assert.equal(setting?.type, 'boolean')
+  assert.equal(setting.default, true)
 })

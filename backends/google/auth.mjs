@@ -12,6 +12,16 @@ import { CalendarError, MESSAGES } from '../../src/errors.mjs'
 
 const SCOPE = 'https://www.googleapis.com/auth/'
 export const scopesFor = ({ rsvp } = {}) => [SCOPE + 'calendar.calendarlist.readonly', SCOPE + (rsvp ? 'calendar.events' : 'calendar.events.readonly')]
+// Asked for at every Connect, but a login without it is complete: tasks are an extra that shows
+// only when Google granted it (the consent screen lets people untick it).
+export const optionalScopesFor = ({ completeTasks = true } = {}) => [SCOPE + (completeTasks ? 'tasks' : 'tasks.readonly')]
+
+// What the granted scopes allow with Google Tasks: 'write' (tick tasks off), 'read' or 'none'.
+export function tasksAccess(scopes) {
+  const granted = typeof scopes === 'string' ? scopes.split(' ') : []
+  if (granted.includes(SCOPE + 'tasks')) return 'write'
+  return granted.includes(SCOPE + 'tasks.readonly') ? 'read' : 'none'
+}
 
 export const DEFAULT_PORT = 43119
 export const TOKENS_KEY = 'google.tokens'
@@ -209,7 +219,7 @@ export function createAuth({ settings, secrets, protection = async () => 'os-key
 
     // Saves the client ID and secret when given, builds the authorize URL and waits for the
     // redirect. Calling it again while a login waits returns the same URL.
-    async start({ clientId: newId, clientSecret: newSecret, rsvp = false } = {}) {
+    async start({ clientId: newId, clientSecret: newSecret, rsvp = false, completeTasks = true } = {}) {
       if (newId !== undefined) {
         const trimmed = String(newId).trim()
         if (!CLIENT_ID.test(trimmed)) throw new CalendarError('invalid', 'That doesn’t look like a Google OAuth client ID. It ends in .apps.googleusercontent.com.')
@@ -230,7 +240,7 @@ export function createAuth({ settings, secrets, protection = async () => 'os-key
       const secret = await clientSecret()
       if (!secret) throw new CalendarError('invalid', 'Paste the client secret too. Google asks for it even for desktop apps.')
       const wanted = await port()
-      const scope = scopesFor({ rsvp }).join(' ')
+      const scope = [...scopesFor({ rsvp }), ...optionalScopesFor({ completeTasks })].join(' ')
       if (login && login.clientId === id && login.requestedPort === wanted && login.scope === scope) {
         armTimeout()
         return { url: login.url }
@@ -279,6 +289,7 @@ export function createAuth({ settings, secrets, protection = async () => 'os-key
         authorizedAt: connected ? tokens.authorized_at : null,
         // calendar.events covers calendar.events.readonly.
         missingScopes: connected ? scopesFor({ rsvp }).filter((s) => !granted.includes(s) && !(s.endsWith('.readonly') && granted.includes(s.replace(/\.readonly$/, '')))) : [],
+        tasks: connected ? tasksAccess(tokens.scopes) : 'none',
         protection: memoryOnly ? 'unavailable' : await Promise.resolve(protection()).catch(() => 'unavailable'),
         redirectUri: `http://127.0.0.1:${await port()}/callback`
       }

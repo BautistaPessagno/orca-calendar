@@ -99,3 +99,84 @@ test('the sample week shows the way to Google, and it leads to the Connect scree
   assert.deepEqual(out.selected, [{ backend: 'google' }])
   assert.equal(out.heading, 'Connect Google Calendar')
 })
+
+// ---------- Google Tasks ----------
+
+const today = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+const yesterday = () => {
+  const d = new Date(Date.now() - 86_400_000)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+const gTask = (id, due, extra = {}) => ({ id, listId: 'l1', listTitle: 'My Tasks', title: id, notes: null, due, done: false, completedAt: null, parentId: null, assigned: false, link: null, ...extra })
+const googleReady = (extra = {}) => ({
+  backend: 'google', status: 'ready', days: 3, showDeclined: false, fetchedAt: Date.now(),
+  calendars: [{ id: 'me', title: 'Me', color: '#039be5', account: 'Google', shown: true }], events: [],
+  tasks: [], taskLists: [], tasksStatus: 'ready', capabilities: { rsvp: true, completeTasks: true }, ...extra
+})
+
+test('tasks show under their day, overdue on today, and the checkbox ticks one off', { skip }, async () => {
+  const snap = googleReady({ tasks: [gTask('Send the report', yesterday()), gTask('Review PR', today())], taskLists: [{ id: 'l1', title: 'My Tasks', shown: true }] })
+  const ticked = { ...snap, tasks: [snap.tasks[0], { ...snap.tasks[1], done: true }] }
+  const out = await runPanel({
+    responses: { 'agenda.get': snap, 'auth.info': authInfo({ connected: true, tasks: 'write' }), 'task.complete': ticked },
+    script: `
+      await wait(200)
+      const rows = [...document.querySelector('.day.today').querySelectorAll('.task')].map((r) => [r.querySelector('.title').textContent, Boolean(r.querySelector('.overdue'))])
+      press('.task [data-task="Review PR"]')
+      await wait(300)
+      const ticked = document.querySelectorAll('.task.done .title')
+      done({ rows, sent: calls.filter((c) => c.name === 'task.complete').map((c) => c.input), done: [...ticked].map((d) => d.textContent) })`
+  })
+  assert.deepEqual(out.rows, [['Send the report', true], ['Review PR', false]])
+  assert.deepEqual(out.sent, [{ id: 'Review PR', listId: 'l1', done: true }])
+  assert.deepEqual(out.done, ['Review PR'])
+})
+
+test('a refused tick goes back and says why', { skip }, async () => {
+  const snap = googleReady({ tasks: [gTask('Review PR', today())] })
+  const out = await runPanel({
+    responses: { 'agenda.get': snap, 'auth.info': authInfo({ connected: true, tasks: 'write' }), 'task.complete': { __throw: 'Google Tasks answered: Backend Error' } },
+    script: `
+      await wait(200)
+      press('.task [data-task="Review PR"]')
+      await wait(300)
+      done({ done: document.querySelectorAll('.task.done').length, alert: document.querySelector('[role=alert]') && document.querySelector('[role=alert]').textContent })`
+  })
+  assert.equal(out.done, 0)
+  assert.match(out.alert, /Backend Error/)
+})
+
+test('without a Tasks permission the agenda shows nothing new; the picker offers to add it', { skip }, async () => {
+  const snap = googleReady({ tasksStatus: 'no-scope', capabilities: { rsvp: true, completeTasks: false } })
+  const out = await runPanel({
+    responses: { 'agenda.get': snap, 'auth.info': authInfo({ connected: true, tasks: 'none' }), 'auth.start': { url: 'https://accounts.google.com/o/oauth2/v2/auth?x=1' } },
+    script: `
+      await wait(200)
+      const agenda = { tasks: document.querySelectorAll('.task').length, banners: document.querySelectorAll('.banner').length, text: document.querySelector('.agenda').textContent }
+      press('#settings')
+      await wait(100)
+      const offer = document.getElementById('reauth') && document.getElementById('reauth').textContent
+      press('#reauth')
+      await wait(200)
+      done({ agenda, offer, started: calls.filter((c) => c.name === 'auth.start').length, signIn: Boolean(document.getElementById('signin')) })`
+  })
+  assert.equal(out.agenda.tasks, 0)
+  assert.equal(out.agenda.banners, 0)
+  assert.doesNotMatch(out.agenda.text, /task/i)
+  assert.match(out.offer, /Show Google Tasks/)
+  assert.equal(out.started, 1)
+  assert.equal(out.signIn, true)
+})
+
+test('a read-only Tasks login shows tasks without a checkbox', { skip }, async () => {
+  const snap = googleReady({ tasks: [gTask('Review PR', today())], capabilities: { rsvp: true, completeTasks: false } })
+  const out = await runPanel({
+    responses: { 'agenda.get': snap, 'auth.info': authInfo({ connected: true, tasks: 'read' }) },
+    script: `await wait(200); done({ rows: document.querySelectorAll('.task').length, buttons: document.querySelectorAll('button.tick').length })`
+  })
+  assert.equal(out.rows, 1)
+  assert.equal(out.buttons, 0)
+})
