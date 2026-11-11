@@ -12,6 +12,33 @@
   },
   "repository": "https://github.com/BautistaPessagno/orca-calendar",
   "license": "MIT",
+  "icon": "images/icon.png",
+  "cover": {
+    "path": "images/cover.png",
+    "alt": "Calendar in Orca's sidebar: the agenda with a call starting in 4 minutes and a Join button, and the same countdown in Orca's status bar. Sample data."
+  },
+  "screenshots": [
+    {
+      "path": "images/agenda.png",
+      "alt": "The agenda in dark theme, and in light theme with an event open: Join Zoom, the room, guests with their answers, a red now line and free time.",
+      "caption": "Today and the next days, in your calendar colours"
+    },
+    {
+      "path": "images/reminders.png",
+      "alt": "Status bar items counting down in grey, then amber, then now; a reminder notification; and the light panel with Join on the next meeting.",
+      "caption": "A countdown in the status bar, a reminder, and Join"
+    },
+    {
+      "path": "images/invitations.png",
+      "alt": "An invitation in light theme with Going? Yes, No, Maybe and each guest's answer, next to the dark calendar picker and source switch.",
+      "caption": "Answer invitations and pick your calendars"
+    },
+    {
+      "path": "images/setup.png",
+      "alt": "The Connect Google Calendar screen with its steps and fields, next to the dark sample week whose top card leads to Google or Mac calendars.",
+      "caption": "Google Calendar in five minutes, or your Mac's calendars with no setup"
+    }
+  ],
   "engines": {
     "orca": ">=1.4.248"
   },
