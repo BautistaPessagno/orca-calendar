@@ -520,6 +520,8 @@
         const clientId = auth?.clientId || ''
         const mac = auth?.platform === 'darwin' || (!auth && navigator.platform.startsWith('Mac'))
         const redirect = auth?.redirectUri || 'http://127.0.0.1:43119/callback'
+        // A refresh can draw this screen again while the person is typing: keep what they typed.
+        const kept = { cid: $('cid')?.value, csecret: $('csecret')?.value }
         main.innerHTML = `<div class="sheet">
           <div class="hero">${icon('sheet', 40)}<h2>${ended ? 'Connect Google Calendar again' : 'Connect Google Calendar'}</h2><p>${esc(ended ? snap.message : 'See your meetings, join calls and get reminders without leaving Orca. It takes about five minutes, once.')}</p></div>
           <details class="help"${clientId ? '' : ' open'}><summary>Create your Google sign-in (once)</summary>
@@ -543,14 +545,18 @@
             <button class="linkish" data-backend="sample">Try it with a sample week</button>
           </div>
         </div>`
+        if (kept.cid) $('cid').value = kept.cid
+        if (kept.csecret) $('csecret').value = kept.csecret
       }
 
       async function startLogin() {
+        // Read the fields before drawing again: drawing rebuilds them, and the secret is never drawn back.
+        const typed = { clientId: $('cid').value, secret: $('csecret').value }
         login = { ...login, busy: true, error: null }
         renderConnect()
         try {
-          const input = { clientId: $('cid').value }
-          const secret = $('csecret').value
+          const input = { clientId: typed.clientId }
+          const secret = typed.secret
           if (secret) input.clientSecret = secret
           const { url } = await request('auth.start', input)
           login = { ...login, url, busy: false }
