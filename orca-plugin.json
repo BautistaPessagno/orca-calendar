@@ -1,0 +1,104 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stablyai/orca/main/docs/schemas/plugins/orca-plugin.v2.schema.json",
+  "manifestVersion": 2,
+  "execution": "trusted-worker",
+  "id": "calendar",
+  "name": "Calendar",
+  "version": "0.1.0",
+  "description": "Your Google Calendar in Orca's sidebar: today's agenda and the next days, the next meeting counting down in the status bar, a join button for Meet, Zoom, Teams and Slack huddles, and a reminder before each meeting. Works with your Mac's calendars with no setup. Not affiliated with Google or Apple.",
+  "author": {
+    "name": "Bautista Pessagno",
+    "url": "https://github.com/BautistaPessagno"
+  },
+  "repository": "https://github.com/BautistaPessagno/orca-calendar",
+  "license": "MIT",
+  "engines": {
+    "orca": ">=1.4.248"
+  },
+  "pluginApi": 1,
+  "main": "worker.mjs",
+  "capabilities": [
+    { "kind": "notifications:show" },
+    { "kind": "secrets:own" },
+    { "kind": "settings:own" },
+    { "kind": "storage:own" }
+  ],
+  "contributes": {
+    "panels": [
+      {
+        "id": "agenda",
+        "title": "Calendar",
+        "icon": "calendar",
+        "entry": "panel/index.html"
+      }
+    ],
+    "statusBarItems": [
+      {
+        "id": "next-meeting",
+        "icon": "calendar",
+        "text": "Calendar",
+        "tooltip": "Your next meeting"
+      }
+    ],
+    "settings": [
+      {
+        "key": "backend",
+        "title": "Calendar source",
+        "description": "Where Calendar reads your meetings. Auto uses Google Calendar once you connect it in the panel, and your Mac's calendars until then.",
+        "type": "string",
+        "default": "auto",
+        "enum": ["auto", "google", "eventkit", "sample"],
+        "enumLabels": ["Auto", "Google Calendar", "Mac calendars (macOS)", "Sample week (try it out)"]
+      },
+      {
+        "key": "days",
+        "title": "Days to show",
+        "description": "Today and the days after it.",
+        "type": "integer",
+        "default": 3,
+        "minimum": 1,
+        "maximum": 14
+      },
+      {
+        "key": "notify",
+        "title": "Remind me before meetings",
+        "description": "A desktop notification before each meeting you haven't declined.",
+        "type": "boolean",
+        "default": true
+      },
+      {
+        "key": "notifyMinutes",
+        "title": "Minutes before",
+        "description": "How long before a meeting the reminder shows. 0 shows it as the meeting starts.",
+        "type": "integer",
+        "default": 5,
+        "minimum": 0,
+        "maximum": 60
+      },
+      {
+        "key": "showDeclined",
+        "title": "Show declined events",
+        "description": "Declined events stay in the agenda, struck through. They never count for the status bar or reminders.",
+        "type": "boolean",
+        "default": false
+      },
+      {
+        "key": "clientId",
+        "title": "Google OAuth client ID",
+        "description": "From the Desktop app OAuth client you created in Google Cloud. The panel's Connect screen fills it in.",
+        "type": "string",
+        "maxLength": 128,
+        "placeholder": "1234567890-abc….apps.googleusercontent.com"
+      },
+      {
+        "key": "redirectPort",
+        "title": "Login port",
+        "description": "Port on 127.0.0.1 where Google sends you back after the login. Change it only if 43119 is taken.",
+        "type": "integer",
+        "default": 43119,
+        "minimum": 1024,
+        "maximum": 65535
+      }
+    ]
+  }
+}
