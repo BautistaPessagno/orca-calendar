@@ -326,21 +326,22 @@
 
       // ---------- state ----------
       let snap = null
-      let open = new Set() // expanded event ids
+      let open = new Set() // expanded event ids, and task keys (taskKey)
       let view = 'agenda' // 'agenda' | 'calendars'
       let auth = null // auth.info
       let login = { url: null, error: null, busy: false, polling: null }
       let busy = false
       let answering = null // id of the event whose answer is being sent
       let answerError = null // { id, message }
-      let ticking = new Set() // "<list>/<task>" being sent
-      let taskError = null // the last tick Google refused
+      let ticking = new Set() // taskKey of each task whose tick is being sent
+      let taskError = null // the last tick Google refused, until the next read
 
       async function load(refresh = false) {
         busy = true
         $('refresh').classList.add('spin')
         try {
           snap = await request('agenda.get', refresh ? { refresh: true } : undefined)
+          taskError = null
           if (snap && (snap.backend === 'google' || snap.status === 'needs-setup' || snap.status === 'unauthenticated')) auth = await request('auth.info').catch(() => auth)
         } catch (error) {
           snap = { status: 'error', message: error?.message || 'Calendar could not be read.', events: [], calendars: [], days: 3 }

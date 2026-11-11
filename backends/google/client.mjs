@@ -9,7 +9,9 @@ const TIMEOUT_MS = 15_000
 
 const reasonOf = (body) => body?.error?.errors?.[0]?.reason ?? body?.error?.status ?? ''
 
-export function createClient({ auth, fetchImpl = globalThis.fetch, base = CALENDAR_BASE, api = 'Google Calendar' }) {
+// `endsLogin`: whether a second 401 ends the Google login. The Tasks client passes false, so a Tasks
+// refusal can never sign the person out of their calendar.
+export function createClient({ auth, fetchImpl = globalThis.fetch, base = CALENDAR_BASE, api = 'Google Calendar', endsLogin = true }) {
   async function send(method, path, { query, body } = {}, retried = false) {
     const token = await auth.getAccessToken({ force: retried })
     const url = new URL(base + path)
@@ -29,6 +31,7 @@ export function createClient({ auth, fetchImpl = globalThis.fetch, base = CALEND
     if (response.ok) return data
     if (response.status === 401) {
       if (!retried) return send(method, path, { query, body }, true)
+      if (!endsLogin) throw new CalendarError('error', `${api} refused the Google login. Calendar tries again at the next refresh.`, { reason: 'unauthorized' })
       await auth.expire()
       throw new CalendarError('unauthenticated', MESSAGES.unauthenticated)
     }

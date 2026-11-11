@@ -58,7 +58,7 @@ export default function activate(orca, deps = {}) {
   }
   // Google Tasks: shown when the login has a Tasks scope (docs/specs/tasks/spec.md).
   const taskSources = deps.taskSources ?? {
-    google: createGoogleTasks({ client: createClient({ auth, fetchImpl: deps.fetchImpl, base: TASKS_BASE, api: 'Google Tasks' }), log }),
+    google: createGoogleTasks({ client: createClient({ auth, fetchImpl: deps.fetchImpl, base: TASKS_BASE, api: 'Google Tasks', endsLogin: false }), log }),
     sample: createSampleTasks({ now })
   }
   const taskAccess = async (id) => (id === 'google' ? ((await auth.connection().catch(() => null))?.tasks ?? 'none') : 'write')

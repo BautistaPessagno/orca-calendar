@@ -99,7 +99,7 @@ export function normalizeEvent(item, calendar) {
 }
 
 // Runs `fn` over `items`, at most `limit` at a time.
-async function mapLimited(items, limit, fn) {
+export async function mapLimited(items, limit, fn) {
   const results = new Array(items.length)
   let next = 0
   const run = async () => {

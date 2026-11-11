@@ -4,20 +4,29 @@
 //
 // A task's `due` is a date: Google keeps it as midnight UTC, and the API can't read the time a
 // task was given in Google Calendar. So the date is the first ten characters, never converted.
-import { plainText } from './backend.mjs'
+import { mapLimited, plainText } from './backend.mjs'
 
 export const TASKS_BASE = 'https://tasks.googleapis.com/tasks/v1'
 
-const PAGES_MAX = 5
-const PARALLEL = 4
+const PAGES_MAX = 5 // of 100 tasks each, per read
+const LISTS_AT_ONCE = 4
 const DATE = /^\d{4}-\d{2}-\d{2}/
+
+// 'yyyy-mm-dd' of a due timestamp, or null when it isn't a real day (the panel formats it).
+const dueDate = (due) => {
+  if (!DATE.test(due ?? '')) return null
+  const date = due.slice(0, 10)
+  const day = new Date(`${date}T00:00:00.000Z`)
+  return Number.isFinite(day.getTime()) && day.toISOString().slice(0, 10) === date ? date : null
+}
 
 const text = (value, max) => (typeof value === 'string' ? value.slice(0, max) : '')
 const midnight = (date) => `${date}T00:00:00.000Z`
 
 // One Google task as the shared Task shape, or null for what the agenda never shows.
 export function normalizeTask(item, list) {
-  if (!item || item.deleted || !DATE.test(item.due ?? '')) return null
+  const due = dueDate(item?.due)
+  if (!item || item.deleted || !due) return null
   const completed = Date.parse(item.completed ?? '')
   return {
     id: text(item.id, 1024),
@@ -25,27 +34,13 @@ export function normalizeTask(item, list) {
     listTitle: list.title,
     title: text(item.title, 300).trim() || '(No title)',
     notes: plainText(item.notes) || null,
-    due: item.due.slice(0, 10),
+    due,
     done: item.status === 'completed',
     completedAt: Number.isFinite(completed) ? completed : null,
     parentId: text(item.parent, 1024) || null,
     assigned: Boolean(item.assignmentInfo),
     link: typeof item.webViewLink === 'string' && item.webViewLink.startsWith('https://tasks.google.com/') ? item.webViewLink : null
   }
-}
-
-// Runs `fn` over `items`, at most `limit` at a time.
-async function mapLimited(items, limit, fn) {
-  const results = new Array(items.length)
-  let next = 0
-  const run = async () => {
-    while (next < items.length) {
-      const i = next++
-      results[i] = await fn(items[i])
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run))
-  return results
 }
 
 export function createGoogleTasks({ client, log = () => {} }) {
@@ -69,23 +64,23 @@ export function createGoogleTasks({ client, log = () => {} }) {
     },
 
     // Unfinished tasks due before `today`, and every task due from `today` up to `end` (exclusive),
-    // both 'yyyy-mm-dd'. A list that fails is logged and left out; the first error is thrown only
-    // when every list failed.
+    // both 'yyyy-mm-dd'. → { tasks, failed: titles of the lists that couldn't be read }. The first
+    // error is thrown only when every list failed.
     async tasks({ today, end, lists }) {
       let firstError = null
-      const results = await mapLimited(lists, PARALLEL, async (list) => {
+      const results = await mapLimited(lists, LISTS_AT_ONCE, async (list) => {
         // By id: Google doesn't say whether dueMax is inclusive, so a task due today may come back
         // from both reads. The second read's copy wins.
         const out = new Map()
-        const keep = (item) => {
+        const add = (item) => {
           const task = normalizeTask(item, list)
           if (task) out.set(task.id, task)
         }
         const path = `/lists/${encodeURIComponent(list.id)}/tasks`
         try {
-          await pages(path, { maxResults: 100, dueMax: midnight(today), showCompleted: false, showAssigned: true }, keep)
+          await pages(path, { maxResults: 100, dueMax: midnight(today), showCompleted: false, showAssigned: true }, add)
           // Tasks ticked in Google's own apps are "hidden" and come back only with showHidden.
-          await pages(path, { maxResults: 100, dueMin: midnight(today), dueMax: midnight(end), showCompleted: true, showHidden: true, showAssigned: true }, keep)
+          await pages(path, { maxResults: 100, dueMin: midnight(today), dueMax: midnight(end), showCompleted: true, showHidden: true, showAssigned: true }, add)
         } catch (error) {
           firstError ??= error
           log(`tasks: ${String(list.id).slice(0, 6)}…: ${error.message}`)
@@ -94,7 +89,7 @@ export function createGoogleTasks({ client, log = () => {} }) {
         return [...out.values()]
       })
       if (results.length && results.every((r) => r === null)) throw firstError
-      return results.flatMap((r) => r ?? [])
+      return { tasks: results.flatMap((r) => r ?? []), failed: lists.filter((_, i) => results[i] === null).map((l) => l.title) }
     },
 
     // Only from a press on the task's checkbox in the panel.
